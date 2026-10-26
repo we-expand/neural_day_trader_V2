@@ -64,8 +64,8 @@ export const LazyQuantumAnalysis = lazy(() =>
   import('@/app/components/quantum/QuantumAnalysis').then(m => ({ default: m.QuantumAnalysis }))
 );
 
-export const LazyAITraderVoice = lazy(() => 
-  import('@/app/components/modules/AITraderVoice').then(m => ({ default: m.AITraderVoice }))
+export const LazyNexusVoiceAssistant = lazy(() =>
+  import('@/app/components/nexus/NexusVoiceAssistant').then(m => ({ default: m.NexusVoiceAssistant }))
 );
 
 // 🎯 BACKTEST COMPONENTS

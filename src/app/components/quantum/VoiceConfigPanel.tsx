@@ -55,7 +55,7 @@ export const VoiceConfigPanel: React.FC<VoiceConfigPanelProps> = ({ isOpen, onCl
   const handleTestVoice = () => {
     setTestingVoice(true);
     speak(
-      'Olá, eu sou a Luna. Estou aqui para ajudá-lo a operar com disciplina e precisão.',
+      'Olá, eu sou o NEXUS. Estou aqui para ajudá-lo a operar com disciplina e precisão.',
       'normal'
     );
     setTimeout(() => setTestingVoice(false), 5000);

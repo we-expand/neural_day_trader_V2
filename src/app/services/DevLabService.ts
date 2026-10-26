@@ -16,12 +16,13 @@ export type Category =
   | 'OPTIMIZATION'
   | 'GROWTH_MARKETING'
   | 'MONETIZATION'
-  | 'AI_BRAIN';
+  | 'AI_BRAIN'
+  | 'SECURITY';
 
 export type Impact = 'HIGH' | 'MEDIUM' | 'LOW';
 export type Effort = 'HIGH' | 'MEDIUM' | 'LOW';
 export type SuggestionStatus = 'active' | 'completed' | 'trash';
-export type SourceType = 'MANUAL' | 'AI_RESEARCH';
+export type SourceType = 'MANUAL' | 'AI_RESEARCH' | 'AI_SUGGESTION';
 
 export interface Suggestion {
   id: string;
@@ -67,6 +68,7 @@ export const CATEGORY_CONFIG: Record<Category, { label: string; color: string }>
   GROWTH_MARKETING: { label: 'Growth & Marketing', color: 'text-cyan-400' },
   MONETIZATION: { label: 'Monetização / Pricing', color: 'text-amber-400' },
   AI_BRAIN: { label: 'Cérebro de IA / P&D Quant', color: 'text-indigo-400' },
+  SECURITY: { label: 'Segurança', color: 'text-rose-500' },
 };
 
 export const IMPACT_CONFIG: Record<Impact, { label: string; bgColor: string; textColor: string; borderColor: string }> = {
@@ -136,6 +138,36 @@ class DevLabService {
     } catch (error) {
       console.error(`${LOG_PREFIX} Erro ao apagar sugestão:`, error);
       return false;
+    }
+  }
+
+  /**
+   * Pede à IA que gere novas sugestões de melhoria da plataforma (Edge
+   * Function `dev-lab-ai-suggestions`) — opinião do modelo, marcada como
+   * source_type 'AI_SUGGESTION', nunca apresentada como fato de concorrente
+   * comprovado (isso é a aba separada "Pesquisas de concorrente").
+   */
+  async generateAiSuggestions(focus?: string, count?: number, category?: Category): Promise<{ suggestions: Suggestion[] } | { error: string }> {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) return { error: 'Sessão expirada — faça login novamente.' };
+
+      const body: Record<string, unknown> = {};
+      if (focus) body.focus = focus;
+      if (count) body.count = count;
+      if (category) body.category = category;
+
+      const { data, error } = await supabase.functions.invoke('dev-lab-ai-suggestions', {
+        body,
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (error) throw error;
+      if (data?.error) return { error: data.error as string };
+      return { suggestions: (data?.suggestions || []) as Suggestion[] };
+    } catch (error: any) {
+      console.error(`${LOG_PREFIX} Erro ao gerar sugestões da IA:`, error);
+      return { error: error?.message ?? 'Falha ao gerar sugestões da IA.' };
     }
   }
 

@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 const MT5_CANDLES_HISTORY_URL = `https://${projectId}.supabase.co/functions/v1/server/mt5-candles-history`;
+const BINANCE_KLINES_URL = `https://${projectId}.supabase.co/functions/v1/server/binance-klines`;
 
 export interface CandleData {
   timestamp: number;
@@ -33,47 +34,52 @@ export interface MarketQuote {
 // o fator limitante, não os 5 anos, e ainda assim sempre busca pelo menos o
 // equivalente ao limite antigo (200 barras).
 const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000;
-const MAX_CANDLES = 10_000;
+// 🐢 Teto baixado de 10.000 para 2.000 em 2026-08-21: pra timeframes
+// intraday (1m/5m/15m/30m/1H/4H) o teto de 10k forçava até 10 páginas
+// sequenciais na Binance (150ms de sleep entre cada + latência real) e uma
+// paginação equivalente escondida no backend do MetaAPI, deixando a troca de
+// ativo/timeframe visivelmente travada para TODOS os ativos. Com 2.000,
+// timeframes intraday caem pra no máximo ~2 páginas (rápido), e diário/
+// semanal continuam recebendo os 5 anos inteiros normalmente (5 anos de
+// candle diário são só ~1825 barras, bem abaixo do teto) -- não regride o
+// fix de zoom-out em 1D/1W, só corta o excesso em timeframes finos.
+const MAX_CANDLES = 2_000;
 
-// 🚀 PERF: buscar os 5 anos completos de cara custava até ~10 chamadas
-// sequenciais à MetaAPI dentro de /mt5-candles-history (cada página ~3-8s +
-// 150ms de espera), deixando o gráfico ~20-80s sem mostrar nada em qualquer
-// símbolo/timeframe fora do cache (ohlcv_data). QUICK_CANDLES fica sob o
-// limite de 1000 candles/página da MetaAPI de propósito, então o primeiro
-// paint normalmente resolve em UMA chamada. O histórico profundo (5 anos,
-// necessário pro zoom-out) continua sendo buscado, só que em background
-// depois do primeiro paint — ver fetchCandlesQuick/fetchData em ChartView.
-const QUICK_CANDLES = 900;
-
-function resolveLookbackMs(msPerCandle: number, previousBarCount: number, quick: boolean = false): number {
-  if (quick) {
-    const desired = Math.max(previousBarCount, 200) * msPerCandle;
-    const cap = QUICK_CANDLES * msPerCandle;
-    return Math.min(desired, cap);
-  }
+function resolveLookbackMs(msPerCandle: number, previousBarCount: number, maxCandlesOverride?: number): number {
   const desired = Math.max(FIVE_YEARS_MS, previousBarCount * msPerCandle);
-  const cap = MAX_CANDLES * msPerCandle;
+  const cap = (maxCandlesOverride ?? MAX_CANDLES) * msPerCandle;
   return Math.min(desired, cap);
 }
 
 /**
  * 🌐 FETCH CANDLES - ROTEAMENTO INTELIGENTE POR FONTE
+ *
+ * 🚀 PERF 2026-09-23 (Cleber: "gráfico demora demais pra entrar"): pra
+ * forex/índice (MetaAPI), o teto padrão de MAX_CANDLES (2.000, ~5 anos
+ * capados) força até 2 páginas sequenciais no backend contra a conta
+ * MetaAPI COMPARTILHADA (sujeita a rate-limit, ver CLAUDE.md) antes do
+ * 1º candle aparecer — mesmo a tela só precisando de algumas centenas.
+ * `maxCandlesOverride` permite ao chamador (ChartView, só na 1ª pintura)
+ * pedir uma janela bem mais estreita (1 página só) pra exibir rápido, e
+ * completar o histórico de 5 anos depois em 2º plano — ver
+ * `extendHistoryInBackground` em ChartView.tsx. Sem o parâmetro, o
+ * comportamento é idêntico ao de antes (cap padrão).
  */
-export async function fetchCandles(symbol: string, timeframe: string, limit: number = 200): Promise<CandleData[]> {
+export async function fetchCandles(symbol: string, timeframe: string, limit: number = 200, maxCandlesOverride?: number): Promise<CandleData[]> {
   console.log(`[MarketService] 🎯 Fetching candles for ${symbol} ${timeframe} via intelligent routing...`);
-  
+
   // 🔍 Detectar tipo de ativo
   const mapping = symbolMappingService.findMapping(symbol);
   const assetType = mapping?.type || detectAssetType(symbol);
-  
+
   console.log(`[MarketService] 📊 Asset type detected: ${assetType} for ${symbol}`);
-  
+
   // 🔀 ROTEAR PARA FONTE CORRETA
   if (assetType === 'crypto') {
-    return fetchCandlesFromBinance(symbol, timeframe, limit);
+    return fetchCandlesFromBinance(symbol, timeframe, limit, maxCandlesOverride);
   } else if (assetType === 'forex' || assetType === 'index' || assetType === 'commodity') {
     // Tentar MetaAPI primeiro, depois fallback
-    const metaCandlesAttempt = await fetchCandlesFromMetaAPI(symbol, timeframe, limit);
+    const metaCandlesAttempt = await fetchCandlesFromMetaAPI(symbol, timeframe, limit, maxCandlesOverride);
     if (metaCandlesAttempt.length > 0) {
       return metaCandlesAttempt;
     }
@@ -86,53 +92,27 @@ export async function fetchCandles(symbol: string, timeframe: string, limit: num
   }
 }
 
-/**
- * 🚀 PERF: variante "rápida" de fetchCandles, pro primeiro paint do gráfico.
- * Mesmo roteamento por tipo de ativo, mas pede uma janela pequena (QUICK_CANDLES)
- * em vez de 5 anos — isso normalmente cabe numa única página da MetaAPI, contra
- * até ~10 páginas sequenciais da busca completa. Usar em conjunto com
- * fetchCandles (chamado depois, em background) pra preencher o histórico
- * profundo sem bloquear a primeira renderização. Crypto (Binance) já é rápido
- * o suficiente e usa o mesmo `limit` pequeno, sem necessidade de dois estágios.
- */
-export async function fetchCandlesQuick(symbol: string, timeframe: string, limit: number = 200): Promise<CandleData[]> {
-  const mapping = symbolMappingService.findMapping(symbol);
-  const assetType = mapping?.type || detectAssetType(symbol);
-
-  if (assetType === 'crypto') {
-    return fetchCandlesFromBinance(symbol, timeframe, limit);
-  } else if (assetType === 'forex' || assetType === 'index' || assetType === 'commodity') {
-    return fetchCandlesFromMetaAPI(symbol, timeframe, limit, true);
-  } else {
-    return [];
-  }
-}
-
-/**
- * 🚀 PERF: lê só o que já está em cache (ohlcv_data), nunca toca a MetaAPI —
- * nem token, nem conta, nem candle ao vivo. Pro primeiro paint
- * "stale-while-revalidate": mostra na hora o que já existe (pode faltar a
- * barra mais recente), enquanto fetchCandlesQuick busca a versão completa em
- * paralelo e substitui assim que chegar. Só forex/index/commodity passam por
- * cache hoje (crypto vem direto da Binance, já rápido o suficiente sem isso).
- * Cache vazio (símbolo/timeframe nunca visitado) retorna [] sem erro — nesse
- * caso não há nada pra mostrar antes da busca ao vivo completar mesmo.
- */
-export async function fetchCandlesCacheOnly(symbol: string, timeframe: string, limit: number = 200): Promise<CandleData[]> {
-  const mapping = symbolMappingService.findMapping(symbol);
-  const assetType = mapping?.type || detectAssetType(symbol);
-
-  if (assetType === 'forex' || assetType === 'index' || assetType === 'commodity') {
-    return fetchCandlesFromMetaAPI(symbol, timeframe, limit, true, true);
-  }
-  return [];
-}
+// 🔴 2026-09-06 (achado ao vivo, DOGUSD sem candles no Gráfico): cesta do
+// LLM Brain (llm-active-brain/src/assetBasket.ts) usa nomes REAIS da
+// corretora que não seguem nenhum padrão de substring óbvio (ex: DOGUSD,
+// LNKUSD, ATMUSD, AVAUSD, XETUSD -- nenhum contém "DOGE"/"LINK"/"ATOM"/
+// "AVAX"/"ETH"), então caíam no branch 'forex' abaixo (por conterem "USD")
+// e eram roteados pra MetaAPI em vez de Binance -- MetaAPI não tinha
+// candle-history pra esses símbolos, gráfico ficava "Não foi possível
+// carregar os candles reais". Lista explícita evita depender de heurística
+// de substring pra estes.
+const KNOWN_CRYPTO_BROKER_TICKERS = new Set([
+  'DOGUSD', 'DOTUSD', 'LNKUSD', 'UNIUSD', 'TRXUSD', 'ATMUSD', 'XLMUSD', 'FILUSD', 'AVAUSD', 'XETUSD',
+]);
 
 /**
  * 🔍 Detectar tipo de ativo pelo símbolo (fallback quando mapping não existe)
  */
 function detectAssetType(symbol: string): 'crypto' | 'forex' | 'index' | 'commodity' | 'stock' {
-  if (symbol.includes('BTC') || symbol.includes('ETH') || symbol.includes('USDT') || 
+  if (KNOWN_CRYPTO_BROKER_TICKERS.has(symbol)) {
+    return 'crypto';
+  }
+  if (symbol.includes('BTC') || symbol.includes('ETH') || symbol.includes('USDT') ||
       symbol.includes('SOL') || symbol.includes('XRP') || symbol.includes('BNB')) {
     return 'crypto';
   }
@@ -152,7 +132,7 @@ function detectAssetType(symbol: string): 'crypto' | 'forex' | 'index' | 'commod
 /**
  * 📡 Buscar candles da Binance (crypto)
  */
-async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit: number): Promise<CandleData[]> {
+async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit: number, maxCandlesOverride?: number): Promise<CandleData[]> {
   // Mapear símbolos para formato Binance
   const symbolMap: Record<string, string> = {
     'BTCUSD': 'BTCUSDT',
@@ -164,6 +144,19 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
     'SOLUSD': 'SOLUSDT',
     'ADAUSD': 'ADAUSDT',
     'DOGUSD': 'DOGEUSDT',
+    // 🔴 2026-09-06: mesmo fix acima (KNOWN_CRYPTO_BROKER_TICKERS) -- sem
+    // entrada aqui, o request pra Binance ia com o nome cru da corretora
+    // (ex: "XETUSD"), que a Binance não reconhece (erro 400/símbolo
+    // inexistente), mesmo já roteado corretamente pra 'crypto'.
+    'DOTUSD': 'DOTUSDT',
+    'LNKUSD': 'LINKUSDT',
+    'UNIUSD': 'UNIUSDT',
+    'TRXUSD': 'TRXUSDT',
+    'ATMUSD': 'ATOMUSDT',
+    'XLMUSD': 'XLMUSDT',
+    'FILUSD': 'FILUSDT',
+    'AVAUSD': 'AVAXUSDT',
+    'XETUSD': 'ETHUSDT',
   };
   
   // Mapear timeframes para formato Binance
@@ -189,7 +182,7 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
     '1d': 86_400_000, '1w': 7 * 86_400_000, '1M': 30 * 86_400_000,
   };
   const intervalMs = msPerCandle[binanceInterval] || 3_600_000;
-  const lookbackMs = resolveLookbackMs(intervalMs, limit);
+  const lookbackMs = resolveLookbackMs(intervalMs, limit, maxCandlesOverride);
   const endTime = Date.now();
   const startTime = endTime - lookbackMs;
 
@@ -207,9 +200,11 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
     while (cursor < endTime && iterations < MAX_ITERATIONS) {
       iterations++;
       const chunkEnd = Math.min(cursor + 1000 * intervalMs, endTime);
+      // 2026-10-23: pelo SERVIDOR (Edge Function /binance-klines), nao direto da Binance -- redes que bloqueiam
+      // api.binance.com (DNS sinkhole/firewall) deixavam o grafico de cripto vazio.
       const response = await fetch(
-        `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${binanceInterval}&startTime=${cursor}&endTime=${chunkEnd}&limit=1000`,
-        { method: 'GET', headers: { 'Accept': 'application/json' } }
+        `${BINANCE_KLINES_URL}?symbol=${binanceSymbol}&interval=${binanceInterval}&startTime=${cursor}&endTime=${chunkEnd}&limit=1000`,
+        { method: 'GET', headers: { 'Accept': 'application/json', Authorization: `Bearer ${publicAnonKey}` }, signal: AbortSignal.timeout(15000) }
       );
 
       if (!response.ok) {
@@ -244,6 +239,89 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
   }
 }
 
+// Timeframe do app -> timeframe aceito por /mt5-candles-history (compartilhado entre a busca ao vivo e a leitura de cache).
+const MT5_TIMEFRAME_MAP: Record<string, string> = {
+  '1m': '1m',
+  '5m': '5m',
+  '15m': '15m',
+  '30m': '30m',
+  '1H': '1H',
+  '2H': '1H',
+  '4H': '4H',
+  '1D': '1D',
+  '1W': '1W',
+  '1M': '1D',
+};
+
+const MS_PER_CANDLE: Record<string, number> = {
+  '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000, '30m': 30 * 60_000,
+  '1H': 3_600_000, '4H': 4 * 3_600_000, '1D': 86_400_000, '1W': 7 * 86_400_000,
+};
+
+/**
+ * 🗄️ 2026-10-22 (Cleber: "EURUSD demora demais pra abrir o gráfico"): lê só o CACHE de candles fechados
+ * (`ohlcv_data`) direto do Supabase, sem passar pela Edge Function nem pela MetaAPI. Serve pra 1ª pintura do
+ * gráfico enquanto a busca ao vivo (`fetchCandles`) roda em paralelo — com a MetaAPI fora do ar (504) a busca ao
+ * vivo leva 30s+, o cache responde em ~0,3s.
+ *
+ * Por que direto do navegador e não via `cacheOnly` da rota `/mt5-candles-history`: medido ao vivo em 22/10, a
+ * versão publicada da função `server` ignora `cacheOnly` e vai à MetaAPI mesmo assim (símbolo inexistente +
+ * `cacheOnly:true` devolveu METAAPI_ERROR após 42s). A tabela tem RLS com SELECT liberado a `authenticated`.
+ *
+ * Só dado real já gravado: devolve `[]` (nunca inventa) se não há sessão, se é cripto (Binance, rápido), se o
+ * cache está esparso (< 20 barras) ou em qualquer falha/timeout. O cache NÃO tem a barra em formação nem as barras
+ * ainda não gravadas — quem chama deve deixar a busca ao vivo corrigir isso depois.
+ */
+export async function fetchCandlesCacheOnly(symbol: string, timeframe: string, maxCandles: number): Promise<CandleData[]> {
+  try {
+    const mapping = symbolMappingService.findMapping(symbol);
+    const assetType = mapping?.type || detectAssetType(symbol);
+    if (assetType !== 'forex' && assetType !== 'index' && assetType !== 'commodity') return [];
+
+    const mt5Symbol = mapping?.infinox || symbol;
+    const mt5Timeframe = MT5_TIMEFRAME_MAP[timeframe] || '1H';
+    const intervalMs = MS_PER_CANDLE[mt5Timeframe] || 3_600_000;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) return [];
+
+    // Janela com folga (x2) pra cobrir fins de semana/feriados sem varrer anos de histórico.
+    const wanted = Math.max(1, Math.min(maxCandles, 1000));
+    const startIso = new Date(Date.now() - wanted * intervalMs * 2).toISOString();
+    const { data, error } = await supabase
+      .from('ohlcv_data')
+      .select('timestamp, open, high, low, close, volume')
+      .eq('asset_symbol', mt5Symbol)
+      .eq('timeframe', mt5Timeframe.toLowerCase())
+      .gte('timestamp', startIso)
+      .order('timestamp', { ascending: false })
+      .limit(wanted)
+      .abortSignal(AbortSignal.timeout(6_000));
+    if (error || !Array.isArray(data)) return [];
+
+    // O cache só deveria ter barras FECHADAS; descarta qualquer uma que ainda esteja em formação.
+    const lastClosedBarStart = Math.floor(Date.now() / intervalMs) * intervalMs - intervalMs;
+    const candles: CandleData[] = data
+      .map((c: any) => ({
+        timestamp: new Date(c.timestamp).getTime(),
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+        volume: Number(c.volume) || 0,
+      }))
+      .filter((c) => Number.isFinite(c.timestamp) && c.timestamp <= lastClosedBarStart && c.open > 0 && c.high > 0 && c.low > 0 && c.close > 0)
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (candles.length < 20) return [];
+    console.log(`[MarketService] 🗄️ Cache ohlcv_data: ${candles.length} candles de ${mt5Symbol} ${mt5Timeframe} (última barra ${new Date(candles[candles.length - 1].timestamp).toISOString()})`);
+    return candles;
+  } catch (err) {
+    console.warn('[MarketService] ⚠️ Leitura de cache de candles falhou (segue só com a busca ao vivo):', err);
+    return [];
+  }
+}
+
 /**
  * 📡 Buscar candles do MetaAPI (forex, índices, commodities)
  *
@@ -256,27 +334,11 @@ async function fetchCandlesFromBinance(symbol: string, timeframe: string, limit:
  * explícito e aqui tratamos como "sem candles" (fallback local assume por
  * cima, mas pelo menos não finge ser real).
  */
-async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit: number, quick: boolean = false, cacheOnly: boolean = false): Promise<CandleData[]> {
+async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit: number, maxCandlesOverride?: number): Promise<CandleData[]> {
   try {
     // Mapear timeframe pro formato aceito por /mt5-candles-history
-    const mt5TimeframeMap: Record<string, string> = {
-      '1m': '1m',
-      '5m': '5m',
-      '15m': '15m',
-      '30m': '30m',
-      '1H': '1H',
-      '2H': '1H',
-      '4H': '4H',
-      '1D': '1D',
-      '1W': '1W',
-      '1M': '1D',
-    };
-    const mt5Timeframe = mt5TimeframeMap[timeframe] || '1H';
-
-    const msPerCandle: Record<string, number> = {
-      '1m': 60_000, '5m': 5 * 60_000, '15m': 15 * 60_000, '30m': 30 * 60_000,
-      '1H': 3_600_000, '4H': 4 * 3_600_000, '1D': 86_400_000, '1W': 7 * 86_400_000,
-    };
+    const mt5Timeframe = MT5_TIMEFRAME_MAP[timeframe] || '1H';
+    const msPerCandle = MS_PER_CANDLE;
 
     // Obter símbolo mapeado para MetaAPI (Infinox)
     const mapping = symbolMappingService.findMapping(symbol);
@@ -286,7 +348,7 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
     // timeframes finos) -- o backend (/mt5-candles-history) já pagina sozinho
     // em blocos de 1000 candles até cobrir o intervalo pedido, então só
     // precisamos alargar startTime/endTime, sem chunking aqui no cliente.
-    const lookbackMs = resolveLookbackMs(msPerCandle[mt5Timeframe] || 3_600_000, limit, quick);
+    const lookbackMs = resolveLookbackMs(msPerCandle[mt5Timeframe] || 3_600_000, limit, maxCandlesOverride);
     const endTime = new Date();
     const startTime = new Date(endTime.getTime() - lookbackMs);
 
@@ -295,6 +357,10 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token;
 
+    // ⏱️ Timeout de 15s: sem isso, se o backend travar (ex: rate-limit 429/504
+    // da conta MetaAPI compartilhada da plataforma -- risco conhecido, ver
+    // CLAUDE.md), o fetch fica preso sem limite e o gráfico nunca sai de
+    // "carregando". Falha explícita e rápida é melhor que travar a UI.
     const response = await fetch(MT5_CANDLES_HISTORY_URL, {
       method: 'POST',
       headers: {
@@ -306,14 +372,34 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
         timeframe: mt5Timeframe,
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
-        cacheOnly,
       }),
+      // 2026-10-14: 15s -> 30s. Medido ao vivo (NAS100 5m): a MetaAPI levou 5,7 a 14,4s por
+      // chamada; com 15s o gráfico caía no timeout de vez em quando e ficava no spinner.
+      signal: AbortSignal.timeout(30_000),
     });
 
     const result = await response.json();
 
     if (!response.ok || !result.success || !Array.isArray(result.candles) || result.candles.length === 0) {
       console.warn(`[MarketService] ⚠️ /mt5-candles-history sem dado real para ${mt5Symbol}:`, result?.message || result?.error);
+      return [];
+    }
+
+    // 🐛 FIX 2026-09-08 (cronômetro do timeframe travado em 00:00 pro CHINA50):
+    // o backend já detecta rate-limit persistente (HTTP 429 na paginação da
+    // MetaAPI, confirmado ao vivo no log) e sinaliza `stale: true` explicitamente
+    // na resposta
+    // (ver `index.ts`, rota /mt5-candles-history), mas esse campo nunca era
+    // lido aqui — só a heurística de idade abaixo. Como o cache devolvido
+    // sob rate-limit ainda podia cair dentro da janela "recente o
+    // suficiente" daquela heurística, o cliente aceitava o mesmo candle
+    // congelado a cada refresh de 30s: a âncora do cronômetro
+    // (`lastRealCandleTimestampRef`) nunca avançava e o contador travava em
+    // 00:00 pra sempre, mesmo com o backend já sabendo que aquele dado
+    // estava obsoleto. Tratar `stale: true` igual a "sem candle real" —
+    // mesma disciplina de nunca fabricar/aceitar dado velho como atual.
+    if (result.stale === true) {
+      console.warn(`[MarketService] ⚠️ /mt5-candles-history devolveu stale:true para ${mt5Symbol} (rate-limit persistente na MetaAPI) — tratando como sem dado real.`);
       return [];
     }
 
@@ -325,6 +411,34 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
       close: c.close,
       volume: c.volume || 0,
     }));
+
+    // 🐛 FIX (bug real: "candles desconjuntados do preço atual"): quando a
+    // busca AO VIVO no /mt5-candles-history falha (conta MetaAPI
+    // compartilhada saturada, ver CLAUDE.md "Risco crônico conhecido"), o
+    // backend cai pro fail-open documentado e devolve só o CACHE
+    // (`ohlcv_data`) com `success: true` — sem sinalizar que aquilo é
+    // histórico velho. O cliente então desenhava esses candles antigos como
+    // se fossem o histórico atual, enquanto a linha de "último preço"
+    // (nativa da klinecharts, calculada a partir do MESMO último candle)
+    // ficava presa num valor/posição de semanas atrás — visualmente
+    // "flutuando" longe de onde os candles real deveriam estar, e sem
+    // nenhuma barra desenhada entre o cache antigo e agora. Em vez de
+    // exibir dado velho como se fosse atual (mesma disciplina de "nunca
+    // fabricar dado" do projeto), trata como falha explícita quando o
+    // último candle está mais velho que o admissível pro timeframe.
+    const lastCandle = candles[candles.length - 1];
+    const staleThresholdMs = (msPerCandle[mt5Timeframe] || 3_600_000) * 3;
+    const candleAgeMs = Date.now() - lastCandle.timestamp;
+    if (candleAgeMs > staleThresholdMs) {
+      console.warn(
+        `[MarketService] ⚠️ Candles de ${mt5Symbol}/${mt5Timeframe} desatualizados ` +
+        `(último candle de ${new Date(lastCandle.timestamp).toISOString()}, ` +
+        `${Math.round(candleAgeMs / 60_000)}min atrás) — provável fail-open do cache ` +
+        `no /mt5-candles-history (busca ao vivo falhou). Tratando como sem dado real ` +
+        `em vez de exibir histórico velho desconectado do preço atual.`
+      );
+      return [];
+    }
 
     console.log(`[MarketService] ✅ Got ${candles.length} METAAPI candles REAIS para ${symbol}`);
 

@@ -266,10 +266,12 @@ PRESET_STRATEGIES.push({
   name: 'Momentum de Curto Prazo (Scalp)',
   description:
     'Rajada de momentum no timeframe de 1 minuto: MACD cruza acima de zero com RSI já em zona de tendência ' +
-    '(50-70, não sobrecomprado) e ADX>18 confirmando micro-tendência. Stop 1×ATR, alvo 3×ATR — R:R 1:3, ' +
-    'EXPERIMENTO em produção a partir de 2026-08-18 (era 1:1,5, desenhado pra taxa de acerto alta; Cleber pediu ' +
-    'pra testar retorno maior por trade). Não validado por backtest/walk-forward — reverter atrTakeProfitMultiplier ' +
-    'pra 1.5 se a taxa de acerto cair demais. ' +
+    '(50-70, não sobrecomprado) e ADX>18 confirmando micro-tendência. Stop 1×ATR, alvo 1,5×ATR — R:R 1:1,5. ' +
+    'EXPERIMENTO de R:R 1:3 rodou em produção de 2026-08-18 a 2026-08-19 (pedido do Cleber, testar retorno maior ' +
+    'por trade) e foi REVERTIDO nesta data: 25 trades fechados, win rate 16% (4/25) — abaixo do breakeven pro R:R ' +
+    'que estava ativo (~25-28% com R:R ~2,5-3:1), PnL líquido −$11,78. Gatilho de reversão ("reverter se a taxa de ' +
+    'acerto cair demais") já estava documentado no próprio código antes do experimento rodar — condição atendida, ' +
+    'revertido sem novo pedido do Cleber. Ver SESSAO_2026-08-19_GATE_DE_MARGEM.md / NEXT_SESSION.md item 4. ' +
     '⚠️ ATENÇÃO OPERACIONAL, diferente das outras 3 estratégias: scalping em CFD via corretora com latência de ' +
     'segundos (documentada nesta plataforma, não hipotética — a conta MetaAPI compartilhada historicamente responde ' +
     'em 3-9s por chamada) é estruturalmente mais arriscado que em execução de baixa latência. O spread cabe no ' +
@@ -287,7 +289,7 @@ PRESET_STRATEGIES.push({
   stopLossMode: 'ATR',
   atrStopMultiplier: 1,
   takeProfitMode: 'ATR',
-  atrTakeProfitMultiplier: 3, // Experimento 2026-08-18 (era 1.5, R:R 1:1.5) — pedido do Cleber, reverter se piorar
+  atrTakeProfitMultiplier: 1.5, // Revertido 2026-08-19 — experimento de R:R 1:3 (2026-08-18/19) reprovado: win rate 16% em 25 trades
   timeframe: '1m',
   maxConcurrentTrades: 1, // foco — scalp já opera em alta frequência, não acumula posições simultâneas
   entryBlocks: [

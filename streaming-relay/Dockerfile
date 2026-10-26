@@ -13,6 +13,7 @@ WORKDIR /app
 COPY streaming-relay ./streaming-relay
 COPY src/app/config/assetDatabase.ts src/app/config/assetDatabase.ts
 COPY src/app/config/brokerRegistry.ts src/app/config/brokerRegistry.ts
+COPY src/app/config/defaultBasket.ts src/app/config/defaultBasket.ts
 
 WORKDIR /app/streaming-relay
 RUN npm run build
@@ -23,4 +24,4 @@ COPY --from=build /app/streaming-relay/dist ./dist
 COPY --from=build /app/streaming-relay/node_modules ./node_modules
 COPY streaming-relay/package.json ./
 
-CMD ["node", "dist/streaming-relay/src/index.js"]
+CMD ["node", "dist/index.js"]

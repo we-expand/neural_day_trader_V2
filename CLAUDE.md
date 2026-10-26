@@ -1,26 +1,2531 @@
 # Neural Day Trader — Estado do Projeto
 
-> **Este arquivo foi reescrito em 2026-07-24 e aparado de novo em 2026-08-04**
-> pra ficar enxuto. O histórico completo de sessões (dezenas de
-> investigações, bugs corrigidos, decisões antigas — incluindo toda a busca
-> por edge de sinal de 07-24 a 08-02 e os handoffs de 07-30 a 08-03) está
-> preservado em [CLAUDE_HISTORY.md](CLAUDE_HISTORY.md) — não é carregado
-> automaticamente, consulte só se precisar do detalhe de algo específico do
-> passado. Este arquivo carrega em toda sessão nova: **mantenha enxuto**.
-> Regra de manutenção: quando uma seção de "pendente" for resolvida, resuma
-> pra 1-2 linhas ou mova o detalhe pro histórico — nunca deixe handoff
-> completo de sessão se acumular aqui de novo (foi isso que aconteceu entre
-> 07-24 e 08-04, e motivou este segundo corte).
+> **Este arquivo foi reescrito em 2026-07-24, aparado em 2026-08-04 e
+> aparado de novo em 2026-08-25** pra ficar enxuto. O histórico completo de
+> sessões (dezenas de investigações, bugs corrigidos, decisões antigas,
+> incluindo os handoffs completos de itens já resolvidos entre 07-24 e
+> 08-24) está preservado em [CLAUDE_HISTORY.md](CLAUDE_HISTORY.md) — não é
+> carregado automaticamente, consulte só se precisar do detalhe de algo
+> específico do passado. Este arquivo carrega em toda sessão nova:
+> **mantenha enxuto**. Regra de manutenção: quando um item de "pendente"
+> for resolvido, resuma pra 1-2 linhas (link pro histórico ou pro .md de
+> sessão se precisar do detalhe) — nunca deixe handoff completo de sessão
+> se acumular aqui de novo (aconteceu duas vezes já, 07-24→08-04 e
+> 08-04→08-25).
 
 ## ▶ COMECE AQUI
 
-Trabalho corrente: **redesenho do cérebro de decisão** (aberto em 2026-08-04,
-depois de 4h40 de IA ligada com zero entradas). Leia
-**[NEXT_SESSION.md](NEXT_SESSION.md)** antes de qualquer coisa — ele diz onde
-paramos, o que já foi decidido, o que está bloqueando e qual é o próximo passo.
-Detalhe completo com evidência, em ordem de leitura:
-`SESSAO_2026-08-05_TAXA_BASE_MEDIDA.md` (mais recente) e
-`SESSAO_2026-08-05_RUNNER_24_7_E_TAXA_BASE.md`.
+**[2026-10-21] "A IA não faz nada" = infra + travas minhas, não estratégia. Conselho, failover NVIDIA, custo corrigido, netting/hedging, e 7 backtests: NENHUM
+sinal mecânico tem vantagem (zero a zero antes do custo; só custo baixo = Russell/NAS100/EURUSD ficam ~0).** Motor reiniciado 12:48 BRT: Mesa OFF
+(réplica de 02/09), failover de modelo (timeout 45s), aborto automático (`MT5_TRIAL_START_ISO=2026-10-21T14:58:00Z`; 3 perdas = pausa 60 min), custo do
+motor = só comissão (spread era descontado em dobro), piso de stop 0,08%, R:R≥1 inviolável, bug do "stop fecha a posição" (take_profit=0) corrigido.
+**Protocolo do Cleber: rodadas de 10 entradas; só escala volume quando rentável; não pode perder todo dia; manuais dele contam só de 21/10.** Plataforma:
+chave Netting/Hedging, alvo digitável, arrastar stop/alvo grava, Shift = reta 100% reta (com chave). **PENDENTE na tela dele:** arraste do stop não grava e
+Fibonacci some ao trocar de tempo gráfico — suspeita nº 1 = aba em link de deploy congelado (usar o alias `dev`); console: `build 21/10-arraste-v2`.
+Detalhe, números, erros meus e pendências: [SESSAO_2026-10-21_CONSELHO_FAILOVER_NETTING_E_TESTES_DO_METODO.md](SESSAO_2026-10-21_CONSELHO_FAILOVER_NETTING_E_TESTES_DO_METODO.md).
+
+**[2026-10-19, noite] "A LLM não opera": cesta de fim de semana esquecida (só 7 criptos numa segunda) + stop cortado a 1 vela de 15m
+com lote dobrado (−US$4,45 em 6 min). Conselho unânime: cesta de dia útil + fim do stop curto, sem afrouxar Mesa/piso. Feito e
+commitado (`4c2a7cf4b`): `MT5_SCALP_STOP_FOLLOWS_TARGET=false`, lote só sobe se o stop encurtou, US2000 na cesta, Setup só oferece
+ativos operáveis (`llmBrainBasket.ts`) e AUDITORIA de LOT_SIZE contra a corretora (~20 ativos errados, SPX500 era 10x; BTCXBN saiu).
+Ouro/prata não cabem no teto de risco (US$10) — fora. TESTE CONGELADO a partir de ~20:05Z: aborta se E[R] < −0,3R nas 20 primeiras ou
+conta −15%; veredito em 40. Detalhe: [SESSAO_2026-10-19_CONSELHO_CESTA_STOP_E_AUDITORIA_DE_CONTRATOS.md](SESSAO_2026-10-19_CONSELHO_CESTA_STOP_E_AUDITORIA_DE_CONTRATOS.md).**
+
+**[2026-10-16, noite] Fim de semana, cesta só cripto: (1) stop do fim de semana acompanha o alvo (`99c2e1ef1`); (2) vigia ignora
+tick parado >60s; (3) `MT5_TARGET_REWARD_USD` 7→10 (`.env`, lote BTC 0,01→~0,02, US$3-5/entrada); (4) **a 1H (MACD) decide o lado,
+5m/15m só consulta** (`atr.ts`/`tools.ts`/`agent.ts`, commit PENDENTE do Cleber; sem 4H; rollback `MT5_DIRECTION_BY_1H=false`).
+1ª entrada do fim de semana: BTCUSD SHORT (abriu antes da regra da 1H, contra o MACD 1H/4H). Detalhe: Parte 2 de
+[SESSAO_2026-10-16_ALVO_AVISO_NVIDIA_3-5_E_GUARDA_BOLETA.md](SESSAO_2026-10-16_ALVO_AVISO_NVIDIA_3-5_E_GUARDA_BOLETA.md).**
+
+**[2026-10-16, tarde] "A LLM não abre NENHUMA posição" (Cleber alarmado ~13h44): 3 causas, 3 ações. Detalhe completo em
+[SESSAO_2026-10-16_ALVO_AVISO_NVIDIA_3-5_E_GUARDA_BOLETA.md](SESSAO_2026-10-16_ALVO_AVISO_NVIDIA_3-5_E_GUARDA_BOLETA.md).** Zero
+entradas no dia tinha 2 causas simultâneas (nenhuma bug): (1) o **agente de alvo ao vivo** (ligado de manhã, ver bloco abaixo)
+recusava por projeto — mas só bloqueou 1 entrada no dia; (2) **NVIDIA engasgando** era a causa dominante: 29 falhas em 22 ciclos
+(12 conexão, 8×429, 9×502/3/4), a maioria das candidatas morria no provedor antes da Mesa. Agravante de raiz: a **Mesa gasta ~36
+chamadas de LLM por entrada**, então satura qualquer provedor. **Ações (commits/comandos entregues ao Cleber):** (A) **agente de
+alvo vira AVISO, não bloqueia** (`tools.ts`, commit `bf0216882` já pushado; rollback p/ bloqueio `MT5_TARGET_AGENT_ENFORCE=true`);
+(B) **modelo NVIDIA trocado** `nemotron-3-super-120b-a12b` → **`nemotron-3.5-super-vl-120b-a12b`** (`LLM_MODEL` no
+`llm-active-brain/.env`, linha antiga comentada; cobre cérebro+Mesa+validador porque `MT5_DESK_MODEL` está vazio). Teste ao vivo:
+o 3-super dava 429 em 2/3 chamadas, o 3.5-super-vl respondeu 3/3 sem 429 e com tool-calling correto; **confirmado após restart
+(~14:09 local): ~2h de motor, 0 erros de 429, Mesas completas sem engasgo**; (C) **alertas do guarda da boleta manual deixam de
+interromper** (`OrderTicket.tsx:544`, só o BLOQUEIO de perda diária trava; alertas seguem gravados em `manual_order_guard_log`;
+pedido explícito do Cleber — commit pendente, é frontend/Vercel, sem restart). **Achado de método, decisão do Cleber de NÃO
+mexer:** com a NVIDIA resolvida, o motor seguiu 0 aberturas por **seletividade legítima** (veto duro `ESTOCASTICO_EXTREMO_CONTRA`
+em 5m+15m+1H) — recomendei estreitar p/ só 5m, Cleber decidiu manter (afrouxar iria contra a regra dele). Os 6 vetos duros estão
+mapeados no .md da sessão. "11/dia" segue irreal (teto medido ~2-6/dia, ver pendência 0). **Pendente:** rodar commit da boleta +
+push; confirmar 1ª entrada aberta de verdade sob o modelo novo; enxugar a Mesa (36 chamadas/entrada) é o conserto de raiz, não
+feito; se NVIDIA der 429 de novo, testar outro modelo da chave antes de cair pro Ollama.
+
+**[EM ANDAMENTO 2026-10-16] Agente de alvo AO VIVO (não é mais sombra) + perfil do dia + limitador de 429. Commit entregue ao
+Cleber, motor reiniciado 12:54Z, 1º `[ALVO-AGENTE]` AINDA NÃO CONFIRMADO ao vivo.** Madrugada 15→16/10: 5 de 5 entradas acertaram
+o lado (MFE médio +US$1,01) e as 5 fecharam no stop, 0 TP: alvo de 0,41–0,67% longe do espaço real (log sombra já dizia
+`floorTargetFits:false`). Agora (`targetCalculator.ts`, `dayProfile.ts` novo, `tools.ts`): alvo = menor entre o proposto, o
+próximo nível, o Fibonacci diário (máx×mín de 24h; a favor da perna só extensões, contra só retrações), o alcance do Setup
+(`targetPoints`: POUCOS ≈ 1 vela de 15m, MÉDIO 0,6× e MUITOS 1,0× a pernada típica) e o espaço do range diário (ADR). Não
+cabe/não paga o piso → **não opera**, também no modo expansão; em POUCOS o modo expansão nem ativa. Scalp: stop encurta junto
+(R:R 1,0, piso = spread e 0,6× vela 15m) e o lote sobe p/ manter o ganho-alvo (US$4–5), sob todos os tetos de risco. Replay do
+log sombra: 43% dos alvos cortados, 39% das propostas recusadas → espere MENOS entradas. Escalonador `MT5_RISK_SCALER_FLOOR=1.0`
+(`.env`). **429 do provedor** (NVIDIA, limite por MINUTO) derrubava a mesa desde 06:00Z: limitador 30 chamadas/min +
+retry paciente (`MT5_DESK_MAX_CALLS_PER_MIN`); 0 erros 429 depois. Modo expansão ativa só com rompimento e aí MACD/estocástico
+ficam liberados (regra do Cleber, mantida); fora dele os vetos valem. BTCUSD LONG 11:30Z entrou em expansão legítima (alvo 1,83%);
+Cleber fechou à mão. Pendente: confirmar `[ALVO-AGENTE]` na 1ª entrada; veto do Gestor de Risco por drawdown diário (7,85%)
+segura entradas — decisão do Cleber; limiares (0,8×/1,0×/0,6×/piso 25% ADR) são julgamento, sem validação. Rollback:
+`MT5_TARGET_AGENT_LIVE=false`, `MT5_SCALP_STOP_FOLLOWS_TARGET=false`, `MT5_DESK_MAX_CALLS_PER_MIN=0`. Teste de 15/10 (stop 1,5×)
+fica CONTAMINADO a partir daqui (alvo/stop/lote mudaram).
+
+**[EM TESTE 2026-10-15 12:26 BRT] Scalp com stop 1,5× e alvo 1,5× o novo stop.** Madrugada de 15/10: −$13,3 (LLM −$5,34,
+manual −$6,90, CHINA50 sozinho −$6,96). Custo não é o problema: bruto desde 22/09 ≈ −$80 contra custo ≈ −$76, e janela de
+horário não ajuda (spread caro só em ativos que a IA quase não opera). O Cleber decidiu: produto aceita qualquer ativo (não
+tirar da cesta), motor é o produto, julga com ~10 entradas. Defeito achado: stop adaptativo ao ATR, mas teto de alvo fixo em
+0,25% → R:R de 0,25 a 0,67 conforme o ativo. Varredura em 147 entradas reais (`scripts/stop-target-sweep.ts`, velas de 5m):
+opção A (alvo 0,6× stop) = −0,22R, desligada; stop apertado e alvo pequeno sempre piores; só stop 1,5–2× com alvo ≥1,5× fica
+positivo (+0,07 a +0,10R, **sem significância**). Ligado: `MT5_SCALP_STOP_FACTOR=1.5`, `MT5_SCALP_TARGET_MAX_PCT=0`. **Critério
+(a partir de 12:26 BRT, 10 entradas consolidadas): abortar se E[R] < −0,3R ou acerto < 30%; manter se ≥ −0,15R.** Conferir:
+`npx tsx scripts/error-report.ts --since=2026-10-15T15:26:00Z`. Pendente: confirmar stop/alvo na 1ª entrada nova; stop do
+reforço (`increase_position`) fica do lado da perda (1 caso). **Tarde de 15/10:** zero entradas até 17:49. Causas: piso de
+valor US$3,60 barrou 7 de 14 tentativas; Mac dormiu de 14:40 a 17:43 (tampa fechada — o motor roda NO Mac, celular só mostra
+o painel; manter na tomada + `caffeinate -s -i`); DNS/NVIDIA fora ao acordar (mesa do EURUSD estourou em 823s). Piso baixado
+3,6→2,5 (`MT5_MIN_NET_REWARD_PER_REFERENCE_USD`, `.env`, restart 17:49); 1ª entrada pós-restart: XETUSD SHORT 0,1 lote às
+20:55Z (tamanho = 0,25× do escalonador × forte 2× × mesa METADE 0,5×; risco US$1,37). Horas 14:40-17:43 não contam no
+teste. Detalhe: [SESSAO_2026-10-15_MADRUGADA_SILENCIO_CUSTO_E_VARREDURA_STOP_ALVO.md](SESSAO_2026-10-15_MADRUGADA_SILENCIO_CUSTO_E_VARREDURA_STOP_ALVO.md)
+e [SESSAO_2026-10-15_TESTE_STOP_1-5X_ALVO_1-5X.md](SESSAO_2026-10-15_TESTE_STOP_1-5X_ALVO_1-5X.md).
+
+**[2026-10-15] 5 ideias executadas, NENHUMA vantagem nova.** Motor de backtest sem futuro + cofre
+(`llm-active-brain/scripts/lib/harness.ts`, canária barra vazamento); momento intradiário (Gao et al. 2018) sem efeito em
+S&P/Nasdaq/DAX/Nikkei; reversão do Nikkei reprovada no cofre; spread por hora medido (índices 8-10x mais caros
+17h-21h BRT, alts de cripto 0,3-11%); guarda-costas na boleta manual (migration `20261015_manual_order_guard_log.sql`
+pendente). IA desde 01/09: 572 entradas, -$374, todas as semanas negativas. Detalhe: Parte 5 da sessão de 14/10.
+
+**[EM ANDAMENTO 2026-10-14] Mesa afrouxada + MODO EXPANSÃO ao vivo + notícias a cada 2 min + leitura das médias.**
+Cleber achou a IA restritiva (1 entrada em ~65 deliberações): 12 de 18 aprovações morriam no piso de valor depois do
+corte METADE. Feito: piso proporcional ao METADE, `TEMPO_MAIOR_CONTRA`/`ALVO_NAO_CABE` deixam de ser veto duro, regras
+novas do método (estocástico com estado, rompimento/expansão, notícias, médias, Fibonacci), corredor de Fibonacci 15m/1H
+(`fibCorridor.ts`), modo expansão AO VIVO (alvo no degrau; vetos de curto prazo e piso liberados a favor da expansão),
+vigia de notícias gratuito, `CONTEXTO_DO_DIA.md`, leitura das médias como gatilho D. Backtests (cripto 1H): Fibonacci
+sem vantagem sobre o acaso; toque na média de 9 em expansão: o 69-73% era look-ahead; refeito em 15/10 com custo e índices = sem vantagem (líquido negativo em tudo). BUG corrigido: o método
+era lido só até 4.000 caracteres. `.env` novo: risco 0.10, piso 3.6, ganho 7.0, `MT5_EXPANSION_LIVE=true`.
+**Pendente do Cleber:** commit + restart; decidir se o alerta de choque bloqueia entradas; reentrada/reforço seguem em
+sombra. Detalhe completo: [SESSAO_2026-10-14_AFROUXAMENTO_DA_MESA_E_METODO_DA_CASA.md](SESSAO_2026-10-14_AFROUXAMENTO_DA_MESA_E_METODO_DA_CASA.md).
+
+
+**[EM ANDAMENTO 2026-10-13] Mesa de Operações (14 agentes + Agente Master) e
+teste "só-LLM" (31 travas de julgamento desligadas, saídas intactas, DEMO).**
+Congelamento de 07/10 levantado pelo Cleber (perdia: -0,4R/entrada em 156).
+Feito: stop conferido pela vela de 1m quando o tick congela (UKOUSD furou o stop
+por ~$5); alvo de scalp limitado a 0,35% (só o alvo); alvo da venda dispara no
+bid do gráfico; mesa que delibera cada entrada (`src/desk*.ts`,
+`METODO_DA_CASA.md`), vetos duros **calculados por código** (a IA inventava veto
+e lia indicador errado), analistas por tempo gráfico (5m/15m/1H), piso de valor
+(R:R ≥ 0,5 e ganho líquido ≥ $1), aprendizado contínuo fase 1-2 (tabela
+`desk_decisions` no Supabase + desfecho contrafactual + `scripts/desk-report.ts`).
+**Pendente do Cleber:** commit + `./restart.sh` (parte está só no disco); decidir
+os "$3 por entrada" (hoje alvo líquido médio +$2,81, mas 25 stops a -$2,93 contra
+8 alvos). Rollback: `MT5_LLM_ONLY_TEST=false` e/ou `MT5_DESK_MODE=off`. Detalhe,
+números e pendências: [SESSAO_2026-10-13_MESA_DE_OPERACOES_E_TESTE_SO_LLM.md](SESSAO_2026-10-13_MESA_DE_OPERACOES_E_TESTE_SO_LLM.md).
+
+**[SUBSTITUÍDO por 2026-10-13, ver acima] Diagnóstico do LLM Brain + llm-council; pacote
+APROVADO pelo Cleber, no disco, commit pendente, restart pendente.** Medido
+(103 entradas da IA desde 22/09, parciais consolidadas): 33% de acerto, -$97;
+22/09 foram 5 entradas/+$1,70 (os 71% contavam parcial como trade). O trade
+perdia por saída e custo, não só por lado: breakeven em 0,35R tirava ganhos,
+XETUSD = 64% do prejuízo, custo = 0,24R por trade. Regra do Cleber "1H dá a
+direção, 5m dá a entrada" testada em 2 anos de BTC/ETH: 47-50% a favor, contra
+ou sem filtro. Pacote no disco: (1) Cleber tira XETUSD/ETHUSD no Setup; (2)
+`MT5_BREAKEVEN_TRIGGER_R` 0,35→1,0 (`.env` + default em `config.ts`); (3)
+REVERSAO volta a exigir padrão de candle + candle seguinte (critério de 23/09
+estourou: 40 entradas, 30%); marcador no snapshot: `reversalRule =
+'padrao-candle-confirmado-v2'`. NÃO entra: nova leitura de 1H (EMA9/20 + 6
+velas) — reprovou na validação cega com o Cleber (4/12; depois regras por
+convergência/curvatura/reversão 3/12 e 6/12, ver research/experiments/
+2026-10-07-tendencia-1h-entrada-5m/). Achados abertos: o Cleber lê padrões de
+candle, MACD e estocástico no 1H; a IA só recebe padrão de candle e MACD no
+timeframe operacional (5m) — ideia: dar a ela padrão/MACD de 1H, testando
+contra marcações dele em gráficos novos; ML supervisionado sobre as
+marcações dele é o primeiro projeto de ML combinado. Congelar até 100
+entradas contadas do restart (olhar em 50 só para abortar), julgando E[R]
+líquido por entrada. Sem promessa de lucro. `npm run validate`: 3 etapas
+falham por erro de bundling ("Dynamic require of stream"), sem relação com o
+pacote (tarefa aberta à parte). Números:
+[research/experiments/2026-10-07-tendencia-1h-entrada-5m/verdict.md](research/experiments/2026-10-07-tendencia-1h-entrada-5m/verdict.md).
+
+**[2026-10-05] MetaAPI parou de sexta (02/10) até segunda por pagamento
+atrasado; pago, a conta `bb99f865…` voltou sozinha: `DEPLOYING` → `DEPLOYED`/
+`CONNECTED` em ~1 min (não precisou de deploy manual). Verificado ponta a
+ponta: `/mt5-prices` e `/mt5-candles-history` (rotas POST) HTTP 200, relay
+(launchd) ativo com 35 símbolos, motor reiniciado pelo Cleber (1 instância,
+sem `watchdog.sh`).** Réplica `backup-new-york` segue `UNDEPLOYED` — sem
+failover de região e com `ValidationError` repetido no `relay.log` (inofensivo).
+UKOUSD devolveu 404 do broker com mercado provavelmente fechado — reconferir
+com mercado aberto. **Pendente**: decidir se redeploya a réplica
+(~$6,84/mês); conferir se a migration `20260923_market_spread_samples.sql`
+foi aplicada (`spreadCollector` deu timeout no log); XNGUSD está no Setup mas
+não em `assetBasket.ts` (ignorado em silêncio).
+
+**[EM ANDAMENTO 2026-09-23, fim da noite] IA "sem inteligência": os 2 SHORTs
+de 17h-18h (BTC/ETH, dia -2,3%/-2,8%) perderam porque a regra das 16:34
+fazia o dia% VOTAR pra vender — oposto do dado. Conselho + 3 anos de
+Binance: depois de dia ≤ -2% às 17h-20h BRT, SHORT acerta só 39-43%.**
+Código commitado (`bbd6b6e2f`, confirmado em 2026-10-05; motor reiniciado
+em 2026-10-05 com esse código no disco): dia% sai do voto
+(`atr.ts`) + veto de SHORT em BTC/ETH nessa janela com log
+`[VETO-EXAUSTAO]` (`tools.ts`); `.env` `MT5_VOLUME_ELEVATED_RATIO` 1.0→0.6
+(pedido do Cleber, sem validação). Método do Cleber testado como regra
+(estocástico 5m + MACD + 1H, scalp, rompimento Fibonacci 1H): NADA tem
+vantagem líquida em BTC/ETH; só o veto passou. Perdas grandes do dia eram
+ordens MANUAIS (~-$209), não da IA. Meta "70% de acerto → subir lote":
+descartada como critério — decidir por R líquido em 150-300 trades da IA.
+**Pendente**: unificar
+`volumeElevated`/`volumeLabel`; separar P&L manual×IA; Cleber vai enviar
+entradas em que ganhou pra alimentar a IA. Congelamento reinicia no commit
+(5 dias/40 trades). Handoff:
+[SESSAO_2026-09-23_NOITE_EXAUSTAO_VETO_SHORT_E_TESTE_DO_METODO.md](SESSAO_2026-09-23_NOITE_EXAUSTAO_VETO_SHORT_E_TESTE_DO_METODO.md),
+testes em [research/experiments/2026-09-23-metodo-do-cleber/verdict.md](research/experiments/2026-09-23-metodo-do-cleber/verdict.md).
+
+**[EM ANDAMENTO 2026-09-23, noite] Custo de execução agora vem do spread REAL
+medido (fonte única) — boleta = log.** Cleber viu +$30 na boleta e $8 no log
+(bruto $32,62 − custo $24,56). Pesquisa+medição: o modelo estático de cripto
+(0,029%) subestimava o mercado (BTC ~0,07%, ETH ~0,1%, alts 0,4–14%). Novo:
+`market_spread_samples` + coletor (`spreadCollector.ts`, 5 min) → mediana 7d →
+`ExecutionCost.ts`/`commissionModel.ts`; boleta com prévia líquida
+(`OrderTicket.tsx`). Detalhe e fontes: [research/COST_SOURCE_OF_TRUTH.md](research/COST_SOURCE_OF_TRUTH.md).
+**Pendente**: rodar migration `20260923_market_spread_samples.sql`, commit,
+`./restart.sh`; custo de BTC sobe ~3x (esperado, é o real).
+
+**[EM ANDAMENTO 2026-09-23, tarde] Congelamento de 22/09 QUEBRADO de
+propósito (pedido do Cleber, "não radical"): LLM Brain quase não entrava à
+tarde. Causa medida: gate de padrão de candle em REVERSAO (143 bloqueios/7
+dias) + veredito por unanimidade (sempre DIVERGENTE).** Mudanças (commits
+`b8f038f94`…`225d9289c`, motor reiniciado): REVERSAO libera por Estocástico
+(cruzamento %K/%D OU zona extrema, 5m/1H), sem padrão de candle; veredito
+rápido por maioria (dia %, 5m, 1H; 1H veta); prompt alinhado; snapshot do
+trade grava `directionRule`/`reversalRule`/`reversalConfirmation`. De
+carona: PnL aberto/equity agora LÍQUIDOS do custo round-trip desde o 1º
+tick (`useApexLogic.ts`) — manual de 1 BTC mostrava +$4 e fechava -$20.
+**Critério de reversão definido antes**: 10 reversões fechadas com acerto
+<45% ou payoff <1:1 → reverter. Custo CRYPTO ($24,5/BTC, metade é slippage
+assumido) provavelmente inflado — recalibrar só com dado real. Handoff:
+[SESSAO_2026-09-23_REVERSAO_VEREDITO_RAPIDO_E_PNL_LIQUIDO.md](SESSAO_2026-09-23_REVERSAO_VEREDITO_RAPIDO_E_PNL_LIQUIDO.md).
+
+**[EM ANDAMENTO 2026-09-23] Congelamento do motor atual (tag
+`freeze-llm-brain-2026-09-22`) + pipeline Fail-Fast novo implementado
+ISOLADO (não plugado em produção) + modo diagnóstico ligado em DEMO
+(8 gates técnicos desligados com shadow-log) pra avaliar o julgamento
+"cru" da IA.** Pedido do Cleber: testar arquitetura Pipeline (Chain of
+Responsibility, 4 fases) + Position Sizing por ATR de um plano colado
+(Gemini). Implementado em `llm-active-brain/src/pipeline/` (código novo,
+testável, **não substitui o motor real ainda**). Ao tentar plugar a Fase
+3 (score substituindo os 4 gates técnicos: MACD/momentum/consenso/
+estocástico) de verdade, achado que cada trava nasceu de incidente real
+documentado (não é regra genérica) — decisão consciente do Cleber de
+**não** substituir ainda, só instrumentar (telemetria `[OK]`/`[REJECTED]`
+em 8 pontos de `tools.ts`, zero mudança de decisão, confirmado por diff).
+Depois, a pedido explícito do Cleber ("saber se ela é boa mesmo ou se é
+besta"), ligado modo diagnóstico (`MT5_DIAGNOSTIC_TECHNICAL_GATES_DISABLED=true`,
+`.env`) que desliga os 8 gates técnicos com log `[SHADOW-REJECTED]` (nunca
+silencioso) — gates de proteção de capital (spread/perda diária/exposição
+correlacionada/etc) continuam intocados. Confirmado `MT5_LIVE_EXECUTION_ENABLED=false`
+antes de ligar — sessão é DEMO, sem risco de capital real. `tsc --noEmit`/
+`npm run validate` limpos em toda a sessão. Handoff completo:
+[SESSAO_2026-09-23_PIPELINE_FAIL_FAST_CONGELAMENTO_E_MODO_DIAGNOSTICO.md](SESSAO_2026-09-23_PIPELINE_FAIL_FAST_CONGELAMENTO_E_MODO_DIAGNOSTICO.md).
+**Pendente real**: commit da última rodada (modo diagnóstico) ainda não
+rodado; sem critério de parada definido pro modo diagnóstico (recomendado
+não deixar rodando indefinidamente); amostra de resultado ainda
+insuficiente (monitoramento de 5 em 5min em andamento).
+
+**[EM ANDAMENTO 2026-09-22] Upgrade do cérebro do LLM Brain: Kimi K3
+(grátis, NVIDIA NIM) testado em produção e REVERTIDO pra Ollama (Qwen3.5
+4B) por instabilidade real da NVIDIA (não só transitória) — motor rodando
+Ollama agora, estável. Fixes de retry (motor e Dev Lab) + Passo 2 do
+feedback loop ficam, independente do modelo ativo.** Kimi K3 venceu
+benchmark isolado de qualidade (único a emitir tool_call correto nos 2
+lados sob os rótulos que o conselho identificou como causa de 75% dos
+bloqueios), mas em produção, numa amostra de 38 ciclos, ficou claro que
+não é ruído: ciclos 3-19 limpos, ciclos 20-37 praticamente todos falhando
+(50% de falha total mesmo esgotando 8 tentativas de retry, incluindo
+rate-limit real 429) — janela real e prolongada de sobrecarga da NVIDIA,
+não um blip. Revertido pra Ollama, confirmado saudável de novo. Fixes que
+ficam valendo pra qualquer modelo: retry contra erro de conexão
+transitório no motor e na Edge Function `dev-lab-ai-suggestions` (mesma
+causa explicava categorias vazias no Dev Lab "Sugestões da IA" —
+**deploy pendente**: `supabase functions deploy dev-lab-ai-suggestions`);
+`duration_seconds`/`mfe_usd` agora instrumentados; `tradeMemory.ts` ganhou
+1º degrau do feedback loop (injeta `ai_reasoning` real dos trades mais
+relevantes, antes buscado e descartado). Meta de frequência 10-15/12h
+pedida pelo Cleber, mantida apesar do achado de que não há teto de
+frequência a soltar hoje (gargalo é 100% qualidade de leitura). 2
+sugestões do Dev Lab avaliadas: regime via clustering já existia (HMM,
+fechado sem retrabalho); RL pra risco pausado (contradiz Passo 5 do
+conselho + precedente de 04/09). Lentidão por ativo investigada: NÃO é o
+modelo, é MetaAPI (BTCUSD via Binance 1,5s vs NAS100 via MetaAPI 25,5s) —
+10 chamadas sequenciais dentro de `get_mt5_quote` que dá pra paralelizar,
+**não implementado ainda**. Handoff completo:
+[SESSAO_2026-09-22_UPGRADE_LLM_KIMI_K3_E_RETRY_FIXES.md](SESSAO_2026-09-22_UPGRADE_LLM_KIMI_K3_E_RETRY_FIXES.md).
+**Pendente real**: deploy do Dev Lab acima; confirmar via SQL que
+`duration_seconds` está gravando nos próximos trades reais; paralelizar
+`get_mt5_quote`; se quiser retomar Kimi K3, só com monitoramento ativo
+(não deixar rodando sozinho até a NVIDIA provar estabilidade por
+horas); `watchdog.sh` voltou a rodar sozinho (fora do meu controle) —
+checar antes de qualquer restart manual futuro.
+
+**[EM ANDAMENTO 2026-09-16] Dia de FOMC ("Super Quarta"): investigado "1
+acerto em 9 entradas" (não era o Fed, era buraco real no gate de entrada
+contrarian, corrigido) + janela do vídeo do Fed virou automática (30min
+antes, sem depender de clique) + banner de aviso de evento de alto
+impacto no Dashboard + reforço no prompt do LLM Brain.** Achado real via
+SQL: 5 de 7 trades fechados do dia usavam "volume alto justifica entrada
+contrarian" pra ignorar o próprio MACD/Estocástico citado no reasoning —
+causa era um gate em `tools.ts` que só travava contra-tendência quando
+Estocástico JÁ estava em extremo E volume NÃO elevado (2 buracos reais,
+volume sozinho bastava). Corrigido pra exigir sempre ≥2 fatores reais,
+sem bypass — já reiniciado ao vivo a pedido do Cleber. De carona: vídeo
+do Fed (`NeuralEventCenter.tsx`, feature de sessão paralela) não abria
+mais por clique, agora abre sozinho 30min antes do horário real da
+coletiva (confirmado no site do Fed), com fallback pro YouTube caso o
+embed do Brightcove tenha restrição de domínio (não confirmado). Banner
+novo no Dashboard avisa qualquer evento de alto impacto do dia (dado
+real, `/economic-calendar`). Prompt do agente reforçado pra não ficar
+paralisado fora da janela travada pelo gate de FOMC (decisão consciente
+do Cleber: manter o gate, só reforçar contexto). Handoff completo:
+[SESSAO_2026-09-16_FOMC_GATE_CONTRARIAN_E_AVISO_FED.md](SESSAO_2026-09-16_FOMC_GATE_CONTRARIAN_E_AVISO_FED.md).
+**Pendente real**: `git commit` de tudo (comandos entregues, nada
+commitado por mim); `./restart.sh` do banner/reforço de prompt (só o fix
+do gate de contra-tendência foi reiniciado até agora); confirmar
+visualmente perto de 15h/15h30 Brasília se a janela do Fed abre sozinha e
+o vídeo realmente toca, e observar as próximas entradas do LLM Brain pra
+confirmar que a trava nova barra o padrão "1 fator sozinho".
+
+**[RESOLVIDO 2026-09-16] "UKOUSD não abre o Gráfico" — não era rate-limit,
+era bug real: o código nunca conseguia usar a réplica MetaAPI de Nova York
+(criada em 09-11) mesmo com a região primária (London) desconectada.**
+Confirmado ao vivo (provisioning API da MetaAPI): `london` (primária)
+`DISCONNECTED`, `backup-new-york` (réplica) `CONNECTED` — Cleber suspeitou
+certo. Causa: `getMetaApiClientApiBase`/`getMetaApiMarketDataApiBase`
+(`supabase/functions/server/index.ts`) liam `account.regions` (array),
+campo que **nunca existiu** no payload real da API — a leitura sempre
+resultava em array vazio, então o código sempre usava a região primária,
+ignorando a réplica desde que ela foi criada. Corrigido em 2 partes: (1)
+leitura correta de `account.region` + `account.accountReplicas[]`; (2) a
+pedido do Cleber ("tem que funcionar como uma suíte — quando uma não
+funciona, a outra tem que entrar no mesmo instante"), failover
+INSTANTÂNEO — `metaApiFetchWithFailover` tenta a região do topo e, em erro
+de infra (504/502/503/timeout), promove a próxima região candidata e
+tenta de novo na MESMA requisição, sem esperar TTL/reload — aplicado em
+`/mt5-prices`, `/mt5-candles` e `/mt5-candles-history` (as 3 rotas que
+causavam o sintoma). `deno check`: 14 erros, todos pré-existentes, nenhum
+novo. Commit + `supabase functions deploy server` já rodados pelo Cleber.
+**Pendente real**: confirmar ao vivo pós-deploy que o Gráfico abre normal
+mesmo com London desconectada; rotas de execução/posição/conta
+(`account-information`/`positions`/`orders`/`trade`) ainda não têm o
+retry instantâneo próprio, só herdam a região corrigida via cache
+compartilhado — gap conhecido, não fechado nesta sessão; causa raiz de
+por que `london` cai continua desconhecida (mesma instabilidade recorrente
+da conta MetaAPI já catalogada, este fix só evita ficar refém dela).
+Handoff completo:
+[SESSAO_2026-09-16_FAILOVER_REGIAO_METAAPI_UKOUSD.md](SESSAO_2026-09-16_FAILOVER_REGIAO_METAAPI_UKOUSD.md).
+
+**[RESOLVIDO 2026-09-15] Reset do LLM Brain: posição aberta sumia do
+Dashboard, depois o fix disso fazia o saldo nunca mais voltar pros
+$100 de verdade — 2 rodadas de fix na mesma sessão, resolvido com
+REALOCAÇÃO da posição pra sessão nova em vez de bloquear o reset.**
+Rodada 1: Cleber reportou que "restartar" o LLM Brain pra $100 de
+madrugada (config nova de ativos asiáticos) fazia uma posição BTCUSD
+LONG sumir do Dashboard — confirmado que ela continuava `OPEN` de
+verdade em `ai_trades` o tempo todo, nunca foi fechada. Causa: (1)
+`endSession()` (`useAIPersistence.ts`) encerrava a sessão do LLM Brain
+incondicionalmente, sem checar posição aberta; (2) um guard de
+"resíduo de corrida" no reload (`useApexLogic.ts`) descartava qualquer
+sessão RUNNING encontrada até 30s depois de um Reset, mesmo com posição
+aberta legítima. Ambos corrigidos com checagem nova (`hasOpenTrades`).
+Rodada 2 (efeito colateral achado pelo Cleber ao testar: "como posso
+estar abaixo de $100 se a posição tá com +$2,43?"): o fix da rodada 1
+fazia `resetLlmActiveBrainSession()` ABORTAR o reset inteiro quando
+havia posição aberta — nenhuma sessão nova nascia, saldo continuava
+carregando todo o histórico da sessão antiga (nunca voltava pra $100
+de verdade). Corrigido pra REALOCAR (`UPDATE ai_trades.session_id`) a
+posição aberta pra uma sessão nova em $100, em vez de bloquear —
+sessão antiga encerrada com saldo real preservado no histórico, trade
+aberto nunca é fechado/reescrito (só o vínculo de sessão muda, auditado
+automaticamente por `ai_trades_audit_log`). Aplicado também
+manualmente no estado real do Cleber (sessão nova `ff7c9bfd...` em
+$100, posição BTCUSD migrada, conferida contra preço real da Binance).
+`tsc --noEmit` limpo nas 2 rodadas. Commits `6fa367a74`+`5b53c8afb`
+(rodada 1) + 1 pendente do Cleber rodar (rodada 2, comando entregue).
+Handoff completo:
+[SESSAO_2026-09-15_RESET_APAGAVA_POSICAO_ABERTA_DO_DASHBOARD.md](SESSAO_2026-09-15_RESET_APAGAVA_POSICAO_ABERTA_DO_DASHBOARD.md).
+**Pendente real**: nenhuma das 2 rodadas teve teste de Reset genuíno
+de ponta a ponta feito DEPOIS do respectivo fix estar no ar — só
+verificação retroativa (aplicada à mão no estado atual). Confirmar na
+próxima vez que o Cleber resetar de verdade com o código já rodando.
+
+**[RESOLVIDO 2026-09-13] Princípio novo no LLM Brain: toque na EMA9/SMA20
+durante queda pode ser armadilha de reversão, não sinal de compra —
+observação de mercado do Cleber, commitado e restart rodado.** Em
+tendência de baixa o preço costuma retestar as médias de 9/20 períodos e
+parecer que vai reverter, mas há vendedores vendidos segurando o preço
+ali antes da queda retomar. Princípio 1k novo em `agent.ts` (logo após
+1j/HMM) exige confirmação real (volume/MACD/Estocástico/S&R) antes de
+comprar nesse toque — nunca só "preço chegou na média". `tsc --noEmit`
+limpo. É contexto de julgamento pro LLM, não trava mecânica — sem
+validação estatística ainda, é a leitura de mercado dele, não edge
+comprovado.
+
+**[NOTA 2026-09-13] As 3 entradas de sessão de 2026-09-11 logo abaixo
+(mobile drawer, stop de fim de semana, Risco da Conta) tinham sido
+commitadas junto com sua documentação (`e46763a94`) mas sumiram deste
+arquivo numa edição posterior de outra sessão rodando em paralelo na
+mesma pasta — mesmo risco já catalogado antes no projeto ("evitar sessões
+paralelas no mesmo working directory"). Re-adicionadas aqui;
+**confirmado via `git log`/grep no código atual que os 3 fixes continuam
+intactos no HEAD**, nenhum foi revertido.**
+
+**[RESOLVIDO 2026-09-11] Mobile (iPhone SE/Galaxy S20, 360-375px) estava
+"todo desalinhado" — sidebar fixa de 320px sempre visível era a causa raiz,
+virou drawer; 3 overflows do ChartView corrigidos.** Sidebar (`Sidebar.tsx`)
+tinha `w-80` fixo sem breakpoint nem hambúrguer — sobrava <60px pra todo o
+resto do app nessas larguras. Agora esconde por padrão em `<md` e abre via
+botão hambúrguer no `Header.tsx` (estado em `App.tsx`, `isMobileMenuOpen`).
+De carona no `ChartView.tsx`: modal de busca de ativo (era `980px` fixo,
+virou `calc(100vw-1.5rem)`), barra de timeframes (ganhou `overflow-x-auto`)
+e menu de contexto (cálculo `window.innerWidth - 380` ficava negativo em
+telas de 360px, cortando o menu). `tsc --noEmit` sem erro novo. Commit
+`cd2cf98b4`, já em `origin/dev`, confirmado ainda presente no código atual
+(2026-09-13). **Nunca confirmado visualmente por navegador** (dev local
+exige login) — pendente confirmação real do Cleber no celular.
+
+**[EM ANDAMENTO 2026-09-11] Stop de fim de semana do LLM Brain isolado do
+stop de dia útil (1.5x ATR vs 2.0x, `mt5StopAtrMultiplierWeekend` em
+`config.ts`) — pedido do Cleber, NÃO reabre o corte global de 2026-09-04
+que derrubou acerto 80%→33%.** Usado só quando `isWeekendMode()`; alvo de
+fim de semana passa a usar esse mesmo multiplicador como referência de
+risco (alvo encolhe junto, R:R fim de semana ~1,67:1). Stop de dia útil
+continua 2.0x, intocado. `tsc --noEmit`/`npm run validate` (37/37) limpos.
+Commits `20b4e8751`+`e46763a94`, já em `origin/dev`, confirmado ainda
+presente em `config.ts:337`/`tools.ts` (2026-09-13). **Pendente real**: sem
+validação estatística ainda — precisa de amostra de fim de semana rodando
+sob este valor antes de julgar efeito.
+
+**[RESOLVIDO 2026-09-11, refinado depois por outra sessão] Card "Risco da
+Conta" do Dashboard — parou de esconder o drawdown real (era travado no
+teto configurado) e passou a calcular contra o capital alocado no Setup
+(`allocatedCapital`), não mais contra um pico de equity móvel.** Cleber viu
+"RISCO ALTO" com patrimônio de $54 e achou estranho — confirmado via SQL
+que o drawdown real (contra a âncora antiga) já estava ~46% acima do teto
+de 35%, não era só bug de exibição. A pedido explícito do Cleber, a base
+do cálculo virou `allocatedCapital` — com o valor real dele (~$57,49) o
+drawdown caiu pra ~6%. Commits `8b2bfe953`+`ff7cfa51d`+`e46763a94`, já em
+`origin/dev`. **Confirmado em 2026-09-13 que outra sessão evoluiu o fix
+ainda mais**: `profitAi` (`MarketScoreBoard.tsx:863`) também passou a usar
+`allocatedCapital` como referência (era `config.initialBalance || 100`
+fixo antes), unificando a âncora entre os dois cards. `tsc --noEmit`/
+`npm run validate` limpos na versão original.
+
+**[EM ANDAMENTO 2026-09-11] Tesouraria Global: comissão própria da casa
+(LIVE) real por ativo + caixa contábil — implementado, aguardando migration/
+commit/deploy do Cleber.** Cleber viu "Comissões da Casa (LIVE)" sempre em
+US$0 e pediu que a tesouraria refletisse o dinheiro real de spread/comissão.
+Achado arquitetural trazido à mesa antes de codar: cada usuário conecta a
+PRÓPRIA conta MT5 na Infinox — a plataforma não é a contraparte, então
+alargar o spread mostrado exigiria virar corretora licenciada (B-book), risco
+jurídico real; Cleber confirmou o caminho legítimo: comissão por lote,
+transparente. Implementado com pesquisa real de mercado (Infinox ECN: Forex/
+Ouro US$7/lote round-turn, Petróleo US$0,70, Índices US$2; cripto sem
+comissão própria publicada pela Infinox, usada referência de mercado mais
+amplo ~US$10, marcada como tal) — tabela nova `platform_commission_ledger`
+(caixa contábil real, 1 lançamento por trade LIVE fechado, taxa travada no
+momento, gravado automaticamente em `neuralBridge.ts`), `/admin/commission-
+summary` lendo do ledger real, Tesouraria com gráfico de saldo acumulado +
+comissão por ativo. `tsc`/`npm run validate`/`deno check` limpos. É ACCRUED
+(o que deveria ser cobrado), não dinheiro já recebido — mecanismo de
+cobrança efetiva do usuário ainda não existe (mesma pendência de "falta
+sistema de pagamento" já catalogada). **Pendente**: rodar migration
+`20260911_platform_commission_ledger.sql` no SQL Editor; `git commit` (raiz
++ `llm-active-brain/`) + `supabase functions deploy server` +
+`./restart.sh` (comandos entregues, nenhum rodado por mim). Handoff
+completo:
+[SESSAO_2026-09-11_TESOURARIA_COMISSAO_PROPRIA_CAIXA_CONTABIL.md](SESSAO_2026-09-11_TESOURARIA_COMISSAO_PROPRIA_CAIXA_CONTABIL.md).
+
+**[RESOLVIDO 2026-09-13] Desenhos manuais do Gráfico (Fibonacci em especial)
+sumindo/distorcendo — 5 causas raiz reais corrigidas e já commitadas
+(`7f180efc6`/`a3b69d7bd`/`72dc9b9fb`/`94f1236b1`).** Cleber reportou em
+sequência: (1) desenho sumia ao navegar entre abas da plataforma — snapshot
+vivia só num `useRef`, morto no desmonte real do `ChartView`; agora também
+salvo no `sessionStorage` (mesmo mecanismo de indicadores/timeframe). (2)
+sumia ao trocar de TIMEFRAME — restauração reaproveitava `dataIndex` do
+dataset antigo, inválido quando o timeframe muda o total de candles
+carregados; corrigido pra recriar só com `timestamp`+`value`, deixando a
+klinecharts recalcular o índice certo. (3) mesmo corrigido acima, um
+`chart.removeOverlay()` SEM argumento (apaga tudo) rodava logo DEPOIS do
+bloco de restauração no mesmo ciclo — desenho renascia e morria na hora;
+movido pra ANTES. (4) Fibonacci aparecia "invertida, lado errado" — achado
+real: `fetchCandles` busca quantidade FIXA de candles (200) não importa o
+timeframe, então timeframes com janelas de tempo muito diferentes deixavam
+pontos do desenho fora do dataset carregado, forçando a lib a grudar numa
+borda arbitrária e distorcer a forma; corrigido buscando candles extras o
+suficiente pra cobrir o ponto mais antigo salvo (teto 5000). (5) clique no
+desenho restaurado não abria o menu de Mover/Estilo/Travar/Apagar — o
+`onClick` nunca era reanexado na recriação; extraído pra função reutilizável
+usada nos dois lugares que criam overlay. `tsc --noEmit` limpo (631, mesmo
+ruído pré-existente, nenhum erro novo) em todos os 4 commits. **Não testado
+ao vivo** (dev local exige login) — pendente confirmação visual do Cleber:
+desenhar Fibonacci, trocar timeframe, navegar entre abas, clicar no desenho
+restaurado. Handoff completo:
+[SESSAO_2026-09-13_DESENHOS_GRAFICO_PERSISTENCIA_E_FIBONACCI_DISTORCIDA.md](SESSAO_2026-09-13_DESENHOS_GRAFICO_PERSISTENCIA_E_FIBONACCI_DISTORCIDA.md).
+
+**[EM ANDAMENTO 2026-09-12/13] LLM Brain: circuit breaker preso desde cedo
+travando execução real (corrigido via restart), gate de confiança 70% no
+fim de semana implementado, bug real de "fechamento fantasma" achado e
+corrigido — mas achado sério à parte, NÃO explicado: 3 posições reais
+apareceram na conta sem nenhum `open_position` da IA por trás.** Cleber
+reportou "a IA não abre posição" no modo fim de semana; investigação ao
+vivo no `llm-brain.log` achou que o circuit breaker global
+(`liveExecution.ts`) tinha disparado horas antes por timeout numa chamada
+a `/broker/execute` (mesmo mecanismo fail-closed já documentado em
+2026-09-11) — desde então toda ordem saía como `live_execution:false`
+(simulada), mesmo a IA "achando" que estava operando real; um restart
+zerou a flag (só existe em memória, não persiste por desenho). De carona,
+a pedido do Cleber, `MIN_CONFIDENCE_FOR_OPEN_POSITION` (fixo em 80%) ganhou
+variante de fim de semana: `config.mt5MinConfidenceForOpenPositionWeekend`
+(default 70, `isWeekendMode()`) — dia útil continua 80%, intocado.
+Confirmado ao vivo depois do restart: entradas com 72%/78% passaram desse
+gate (recusadas depois só por R:R/confluência real, não mais por
+confiança). **Achado grave corrigido**: `executeLiveClose` só conferia o
+HTTP 200 de `/broker/execute` como prova de fechamento real, sem
+reconferir a lista de posições na corretora depois — um "fechamento" do
+NAS100 marcou `CLOSED` no banco, mas a posição real continuou aberta e foi
+readotada 17s depois como entrada nova pela reconciliação (duplicando o
+rastreio da mesma posição real). Corrigido: agora reconfere `getPositions`
+após o `closePosition`, só aceita sucesso se a posição de fato sumiu;
+senão aciona o circuit breaker. `tsc --noEmit`/`npm run validate` (37/37)
+limpos nos 3 arquivos (`config.ts`/`tools.ts`/`liveExecution.ts`), commit
+entregue ao Cleber (comando pronto, ele decide rodar). **Achado sério, SEM
+explicação ainda**: ao longo do dia, 3 posições reais apareceram na conta
+(NAS100, BTCUSD LONG `1214151467`, BTCUSD SHORT `1214151788`) sem nenhum
+`open_position` correspondente no log — a reconciliação só as "adotou"
+(mecanismo correto, evita travar o motor), mas não explica a origem.
+Chegou a haver LONG e SHORT simultâneos em BTCUSD na conta real ao mesmo
+tempo. Pergunta feita ao Cleber (se são entradas manuais dele na Infinox
+em paralelo ao motor) ainda sem resposta confirmada. **Pendente real**:
+Cleber rodar o commit; investigar a origem das 3 posições fantasmas antes
+de assumir que é comportamento normal.
+
+**[EM ANDAMENTO 2026-09-12/13] Dashboard mobile "desalinhado" investigado sem
+confirmação visual (sem login no dev local) + número de preço "fantasma" no
+Gráfico (Fibonacci) — nenhum dos dois corrigido de verdade ainda, ambos
+pendentes de confirmação do Cleber.** (1) Cleber reportou pelo celular que o
+Dashboard aparecia "como plataforma maximizada espremida numa janela
+pequena". Investigação de código (`App.tsx`, `Sidebar.tsx`,
+`MarketScoreBoard.tsx`) não achou nenhuma largura mínima forçando isso — a
+arquitetura de layout (drawer da sidebar, `flex-1 min-w-0`) já está correta
+desde o fix de 2026-09-11, e o `isMobileMenuOpen` nasce `false`. Suspeita
+não confirmada: o print pode ter sido tirado de uma URL de deployment com
+hash (congelada, nunca atualiza) em vez do alias `dev` — pedido ao Cleber
+confirmar a URL exata, sem resposta ainda. **Nenhuma mudança de código
+aplicada** — achado inconclusivo, não tratar como resolvido. (2) Cleber
+mandou print (Chrome desktop, ETHUSD/1H) mostrando dois números soltos no
+Gráfico ("11" com preço 2.660,99 flutuando acima dos candles, e "2.406,85"
+sobrepondo candles "12 13" mais abaixo) — à primeira vista parecia resíduo
+do bug de Fibonacci já atacado 3x nos últimos commits
+(`94f1236b1`/`72dc9b9fb`/`a3b69d7bd`), mas achado real na investigação: os
+dois valores caem exatamente dentro do range de preço visível na régua do
+próprio print (~2.405-2.666) — não são valores fabricados/aleatórios, mais
+provável que seja um desenho de Fibonacci NATIVO da klinecharts
+(`fibonacciLine`) desenhado de verdade em algum momento (por ele ou sessão
+anterior) e nunca apagado, não necessariamente um bug de renderização. Pedido
+ao Cleber clicar direto no número pra confirmar se abre o menu de Mover/
+Estilo/Travar/Apagar (desenho real, só precisa apagar) ou se o clique é
+morto (aí sim bug de restauração de overlay, mesma classe do ref
+`userDrawingOverlayIdsRef`/`srOverlayIdsRef` não resetado no dispose()+
+init() do chart — hipótese levantada mas NÃO aplicada, sem confirmação).
+**Pendente real**: resposta do Cleber nos dois itens antes de qualquer fix
+ser escrito — nada foi commitado nesta sessão.
+
+**[RESOLVIDO 2026-09-11, noite] "LLM não abre posição" era circuit breaker
+global travado por posição aberta manualmente no MT5 (não saldo) + teto de
+exposição correlacionada estourado — ambos resolvidos; achado sério à
+parte: drawdown real de ~50% na conta, não é bug de dashboard.** Cleber
+pediu checagem de saldo; causa raiz #1 era `liveExecution.ts` — corretora
+tinha posição (aberta manualmente por Cleber direto no MetaTrader) que o
+motor não reconhecia em `ai_trades`, disparando o breaker global (fica
+travado até restart, por desenho) e bloqueando toda ordem real (abrir/
+fechar) desde ~19:49 UTC. Confirmado ao vivo via `getLivePositions` que as
+posições reais batiam com o banco antes de reiniciar — seguro,
+`./restart.sh` limpou o breaker. Achado no working tree um fix já pronto
+(de sessão anterior, não commitado ainda) que resolve a causa raiz de
+verdade: reconciliação ADOTA automaticamente posição real não reconhecida
+em vez de travar tudo. Causa raiz #2: teto de exposição do grupo
+correlacionado (`MT5_MAX_CORRELATED_NOTIONAL_USD`, fixo em $2700 desde
+30/08) travava toda entrada LONG em cripto (exposição já em ~$12k) — a
+pedido do Cleber (queria mais volume no fim de semana, ~15 trades/12h),
+subido pra **$15.000** via `.env` do `llm-active-brain` (sem commit,
+motor reiniciado). Confirmado depois que passou a travar só por
+seletividade normal (confiança/confluência/R:R), não mais pelo teto.
+**Achado sério à parte, sem relação com os dois acima**: Dashboard
+mostrando "RISCO ALTO" mesmo pós-fix de exibição de mais cedo — confirmado
+DIRETO na corretora (`getLiveAccountInfo`): saldo real $9,11, equity
+$27→$28 (recuperando), contra `allocatedCapitalUsd=$54,03` — drawdown real
+~49-50%, confirmado também via SQL (4 trades reais fechados, PnL líquido
+-$35,13). Não é bug, é perda real; Cleber confirmou ciente ("sei que
+perdi, mas está recuperando"). **Pendente real**: `git push origin dev`
+do commit (`hmmRegime.ts`+`index.ts`+`neuralBridge.ts`, comando entregue);
+observar se o teto de $15.000 realmente sustenta ~15 entradas/12h ao longo
+do fim de semana ou se a seletividade segue sendo o gargalo dominante;
+acompanhar se a recuperação de equity se mantém. Handoff completo:
+[SESSAO_2026-09-11_CIRCUIT_BREAKER_TRAVADO_POSICAO_MANUAL_MT5.md](SESSAO_2026-09-11_CIRCUIT_BREAKER_TRAVADO_POSICAO_MANUAL_MT5.md).
+
+**[RESOLVIDO 2026-09-11, noite] Verificação pós-reset do LLM Brain pra
+saldo real + achado de queda/recuperação da MetaAPI durante a cesta 100%
+cripto do fim de semana — só checagem/monitoramento, nenhum código
+mudado.** Cleber pediu conferência depois de resetar o motor pra saldo
+real e trocar a cesta do Setup pra cripto ("só moedas" pro fim de semana).
+Confirmado via `.env` + Supabase (`ai_trades`): `MT5_LIVE_EXECUTION_ENABLED=true`
+de fato ativo, trades desde ~20:17 UTC já saem com `broker_position_id`
+real e comissão cobrada (ex.: BTCUSD LONG -$1,63 líquido, comissão
+$0,225) — execução real confirmada funcionando. Cesta nova em
+`ai_user_config` (`BTCUSD, AVAUSD, BNBUSD, DOGUSD, LNKUSD, XETUSD`)
+confirmada 100% cripto — **correção própria registrada aqui**: cheguei a
+achar que XETUSD fosse o índice alemão (DAX) por semelhança de nome e
+recomendei removê-lo por engano; Cleber corrigiu — `XETUSD` é o contrato
+Ethereum da Infinox (`assetDatabase.ts:178`, `name: 'Ethereum (XET)'`,
+categoria CRYPTO 24/7), documentado desde 2026-07-16. Achado real, não
+suposição: por volta de 21:00 UTC o feed da MetaAPI/Infinox travou por
+completo pra TODOS os símbolos não-BTC da cesta nova (AVAUSD/BNBUSD/
+DOGUSD/LNKUSD/XETUSD todos com o mesmo tick parado, mesmo timestamp) —
+só BTCUSD continuou fresco por já ser roteado direto pra Binance (fix de
+2026-08-31); `streaming-relay` também estava fora do ar nesse intervalo
+(processo não aparecia no `ps`, log parado). ~1h20 depois, confirmado via
+`curl` direto em `/mt5-prices` (não só pelo log do processo, que fica em
+cache) que a MetaAPI recuperou sozinha — todos os cripto da cesta voltaram
+com tick de poucos segundos de idade; só o NAS100 (posição antiga ainda
+aberta, fora da cesta nova) segue com tick congelado de sexta ~21h UTC,
+comportamento esperado de CFD de índice fechado no fim de semana, não
+falha. **Nenhuma ação de código foi tomada** — motor já bloqueia entrada
+em cotação `stale` sozinho, sem risco de operar com preço velho durante a
+queda. Mesma classe de instabilidade recorrente da conta MetaAPI dedicada
+já catalogada mais acima (réplica `backup-new-york`) — sem novidade sobre
+causa raiz.
+
+**[RESOLVIDO 2026-09-11] Mobile (iPhone SE/Galaxy S20, 360-375px) estava
+"todo desalinhado" — sidebar fixa de 320px sempre visível era a causa raiz,
+virou drawer; 3 overflows do ChartView corrigidos. Commit rodado pelo
+Cleber.** Sidebar (`Sidebar.tsx`) tinha `w-80` fixo sem breakpoint nem
+hambúrguer — sobrava <60px pra todo o resto do app nessas larguras. Agora
+esconde por padrão em `<md` e abre via botão hambúrguer novo no
+`Header.tsx` (estado em `App.tsx`). De carona no `ChartView.tsx`: modal de
+busca de ativo (era `980px` fixo, virou `calc(100vw-1.5rem)`), barra de
+timeframes (ganhou `overflow-x-auto`) e menu de contexto (cálculo de
+posição `window.innerWidth - 380` ficava negativo em telas de 360px,
+cortando o menu). `tsc --noEmit` sem erro novo nos arquivos tocados.
+**Pendente**: testar visualmente em 375px/360px (dev local exige login,
+não deu pra confirmar por navegador nesta sessão).
+
+**[EM ANDAMENTO 2026-09-11] Stop de fim de semana do LLM Brain isolado do
+stop de dia útil (1.5x ATR vs 2.0x) — pedido do Cleber, NÃO reabre o corte
+global de 2026-09-04 que derrubou acerto 80%→33%.** Novo
+`mt5StopAtrMultiplierWeekend` (`config.ts`) usado só quando
+`isWeekendMode()`; alvo de fim de semana passa a usar esse mesmo
+multiplicador como referência de risco (alvo encolhe junto, R:R fim de
+semana ~1,67:1). Stop de dia útil continua 2.0x, intocado. `tsc --noEmit`
++ `npm run validate` (37/37) limpos. **Pendente**: `git commit`+push+
+`./restart.sh` (dentro de `llm-active-brain/`); sem validação estatística
+ainda, precisa de amostra de fim de semana rodando.
+
+**[EM ANDAMENTO 2026-09-11] Card "Risco da Conta" do Dashboard — 2 fixes em
+sequência: (1) parava de esconder o drawdown real quando passava do teto,
+(2) base do cálculo trocada de pico de equity móvel pra capital alocado no
+Setup.** Cleber viu "RISCO ALTO" com patrimônio de $54 e achou estranho.
+Achado 1: `Math.min(drawdownReal, teto)` em `MarketScoreBoard.tsx` travava
+o número exibido no valor do teto (sempre "35.00%/35.00%"), escondendo que
+o drawdown real (contra `portfolio.currentDrawdown`, ancorado em pico de
+equity/abertura do dia) já estava ~46% acima do teto — confirmado via SQL
+direto no Supabase, não era bug de exibição isolado, a conta realmente
+estava em drawdown alto CONTRA aquela âncora. Cleber então pediu
+explicitamente: teto de 35% deve ser sobre o **capital alocado no Setup**
+(`allocatedCapital`), não sobre um pico que se move sozinho — implementado,
+`realDrawdownPercent` agora é queda real em $ desde `allocatedCapital`
+como % desse mesmo valor, fixo até o usuário mudar manualmente. Com o
+capital alocado real do Cleber (~$57,49) o drawdown cai pra ~6%, deve virar
+"SEGURO" pós-deploy. `tsc --noEmit`/`npm run validate` (37/37) limpos.
+**Pendente**: `git commit`+push do 2º fix (comando entregue); confirmar
+visualmente o selo mudando pra SEGURO depois do deploy.
+
+**[EM ANDAMENTO 2026-09-11, noite] ACHADO GRAVE: `MT5_LIVE_EXECUTION_ENABLED=false`
+o dia inteiro — nenhum trade de hoje (BTCUSD/LNKUSD/UKOUSD/SPX500...) foi
+ordem real na corretora, apesar do Cleber acreditar que era dinheiro real.**
+Confirmado depois que Cleber fechou manualmente uma posição UKOUSD com medo
+(feed MetaAPI instável, sem proteção mecânica de stop) e notou que o saldo
+real do MetaTrader ($57) não mudou nada. `isLiveExecutionActive()`
+(`liveExecution.ts`) checa esse flag do `.env` do motor ANTES de checar
+`broker_credentials` — com ele `false`, toda entrada vira só registro
+simulado em `ai_trades` (preço real, ordem nunca enviada). O badge "MODO
+LIVE" do frontend e a conexão de corretora são **desacoplados** desse flag —
+nunca avisam o motor server-side pra operar de verdade. **Boa notícia**: SL/TP
+real na corretora já está implementado desde 08/09 (`executeLiveMarketOrder`
+→ `/broker/execute` → MetaAPI com `stopLoss`/`takeProfit` reais, confirmado
+no código) — não precisa de dev novo, só nunca foi exercitado por este
+kill-switch estar desligado. De carona, 3 fixes reais de reconciliação
+LIVE (posição/saldo do MT5 sumindo/piscando no Dashboard — causa raiz era
+`executionMode`, campo legado que nada mais seta pra `'LIVE'` no client) e
+recolhimento dos painéis de Estágio 1-4 (motor client-side separado e mais
+antigo, ligado por engano). Mitigação aplicada pra investigar a
+instabilidade recorrente da MetaAPI (504 sustentado em múltiplos símbolos):
+polling do rodapé de ativos (`MarketTicker.tsx`, ~30-47 símbolos/120s)
+desligado, busca só 1x no mount. **Decisão do Cleber**: não religar
+`MT5_LIVE_EXECUTION_ENABLED` até a MetaAPI provar estabilidade por horas
+sem o rodapé consumindo cota. Handoff completo:
+[SESSAO_2026-09-11_RECONCILIACAO_LIVE_EXECUCAO_MORTA_E_METAAPI_INSTAVEL.md](SESSAO_2026-09-11_RECONCILIACAO_LIVE_EXECUCAO_MORTA_E_METAAPI_INSTAVEL.md).
+**Pendente**: `git push origin dev` do commit do `MarketTicker.tsx` (comando
+entregue); observar estabilidade; só depois decidir religar execução real.
+
+**[EM ANDAMENTO 2026-09-11, noite] Complemento ao achado acima: 2ª camada
+separada também impedia execução real — motor mecânico legado (não a LLM)
+estava plugado no toggle "Estágios 1-4" de execução automática LIVE do
+navegador, corrigido; cesta reduzida 11→6 ativos como mitigação de
+rate-limit.** Monitoramento contínuo pedido pelo Cleber durante o teste com
+dinheiro real achou que `forwardLiveDecision` (`TradingContext.tsx`)
+recebia decisão do `runTradingCycle.ts` (motor mecânico client-side antigo,
+`useStrategies()`, nada de IA) e não da LLM (`llm-active-brain`, que só
+decide na sessão DEMO, nunca tem `broker_position_id`) — corrigido e já
+commitado/pushado (`eaa3ad154`, `origin/dev`): decisão do motor legado é
+ignorada em modo LIVE agora. De carona, parado o log de saldo repetindo a
+cada 5s no painel "Atividade da IA" (mesmo commit). Depois, cotações vindo
+majoritariamente `stale:true` (rate-limit já catalogado abaixo) levou
+Cleber a reduzir a cesta do Setup de 11 pra 6 ativos
+(`BTCUSD/SPX500/NAS100/ETHUSD/GER40/XAUUSD`) como mitigação enquanto
+aguarda resposta do suporte MetaAPI — confirmado que o motor relê a config
+a cada ciclo sozinho, sem precisar de restart. **Pendente**: reconfirmar se
+a cesta menor realmente melhorou a taxa de cotação fresca (verificação
+ficou em andamento quando a sessão foi encerrada); desenhar com cuidado a
+ponte real LLM→execução (trades da LLM continuam 100% simulados hoje,
+nunca chamam `/broker/execute` — Cleber quer essa ponte construída, mas é
+trabalho grande, ainda não iniciado). Handoff completo:
+[SESSAO_2026-09-11_MONITORAMENTO_LIVE_MOTOR_ERRADO_NA_EXECUCAO_E_RATE_LIMIT.md](SESSAO_2026-09-11_MONITORAMENTO_LIVE_MOTOR_ERRADO_NA_EXECUCAO_E_RATE_LIMIT.md).
+
+**[EM ANDAMENTO 2026-09-11, tarde] Conta MetaAPI dedicada (Londres)
+desconectando — réplica em `backup-new-york` adicionada como tentativa de
+mitigação, mas efeito real AINDA NÃO COMPROVADO — achado que enfraquece a
+hipótese de "problema é a região".** Cleber reportou a conta desconectada
+de novo; confirmado ao vivo no `relay.log` (região `london`): ciclo de
+`Failed to subscribe TimeoutError` repetido por ~1h e confirmado via API
+de provisionamento que `connectionStatus` estava `DISCONNECTED` de
+verdade — mesma classe de fragilidade já catalogada em 08/09
+(`resourceSlots: 1`, `accountReplicas: []`, sem failover). Ação: em vez de
+recriar a conta numa região nova (exigiria senha do MT5 de novo e trocar
+`accountId` em todo lugar), usada a função de **réplica** do painel
+MetaAPI — mesma conta (`bb99f865-96fb-4573-98a7-1f32895f84f7`),
+credenciais reaproveitadas, região extra `backup-new-york` (1000+
+resource slots), ~$6,84/mês. Confirmado via API depois de criada:
+`accountReplicas` deixou de ser `[]`, as duas regiões com `state:
+DEPLOYED`/`connectionStatus: CONNECTED` simultâneas; `streaming-relay`
+reiniciado, log confirmou as 4 sockets conectadas. **Não precisou de
+mudança de código nem de secret** — é a mesma conta, a MetaAPI faz
+failover entre regiões de forma transparente. **Achado real, honesto,
+que NÃO estava na hipótese original**: ~13min depois do restart, as 4
+sockets (Londres E a réplica nova, as duas regiões) caíram JUNTAS num
+burst de `ping timeout`/`lost connection`, e nos minutos seguintes
+**tanto Londres quanto a réplica nova falharam `Failed to subscribe`
+simultaneamente** (17:57-17:58 UTC) — se o problema fosse específico da
+região de Londres, a réplica deveria ter continuado saudável enquanto
+Londres falhava; as duas caindo e falhando juntas aponta mais pra rede
+local (Mac/Wi-Fi/ISP do Cleber) ou o lado do broker/conta do que pra
+região MetaAPI em si. Depois desse burst, ~20min sem nova falha até o
+monitoramento ser encerrado a pedido do Cleber (ele mesmo ia continuar
+observando). **Não declarar esta mitigação como sucesso** até acumular
+várias horas/dias sem recorrência do cluster de `Failed to subscribe` —
+critério limpo: se voltar a falhar com as DUAS regiões juntas, a causa
+raiz não é a região de Londres (não vale gastar mais em trocar região
+de novo); se só Londres falhar dali pra frente com Nova York saudável,
+aí sim a réplica está cumprindo o papel de failover esperado. **Pendente
+real**: Cleber está observando por conta própria, sem monitoramento
+automático armado agora — retomar se ele reportar recorrência.
+
+**[RESOLVIDO 2026-09-11, madrugada] Painel "Atividade da IA" ficou preso em
+"Aguardando..." depois de "Reinicialização Total" — causa real era ciclo
+anormalmente longo, não bug de cache no caminho principal; achado e
+corrigido um bug real de verdade num caminho secundário (fallback).**
+Cleber clicou "Reinicialização Total" no meio de um ciclo do LLM Brain que
+estava demorando ~21min (cesta em rate-limit/stale da MetaAPI) — o reset
+criou sessão nova (`ai_sessions`) mas o ciclo antigo, já em andamento,
+só terminou minutos depois; o painel ficou "vazio" (sessão nova sem
+nenhuma linha ainda) até o próximo ciclo começar e resolver a sessão certa
+sozinho — o caminho real de resolução (`listEligibleMt5Sessions`,
+`neuralBridge.ts`) já reconsulta o banco do zero a cada ciclo, sem cache,
+e se autocorrigiu sem precisar de restart. Achado de verdade, corrigido:
+existe um 2º caminho de resolução de sessão
+(`getOrCreateMt5Session`, usado só como fallback bootstrap quando não há
+nenhuma sessão elegível) que cacheava o `session_id` numa Promise ETERNA,
+sem nunca revalidar — se esse caminho fosse acionado depois de um reset,
+ficaria preso pra sempre, sem autocura. Trocado por cache com
+revalidação a cada 30s, que detecta sessão mais nova e migra sozinho,
+logando a troca (`llm-active-brain/src/neuralBridge.ts`). `tsc --noEmit`
+limpo. **Pendente**: `git commit` (comando entregue ao Cleber) — não
+precisa de restart pra esse fix específico pegar, só vale a partir do
+próximo restart do motor.
+
+**[EM ANDAMENTO 2026-09-11] Sessão de 30h do LLM Brain fechou -$32,81
+líquido (44 trades, 43,2% acerto, payoff invertido 0,60:1) — Cleber pediu
+"chama o conselho", llm-council convocado (5 conselheiros + 5 revisões
+cruzadas, unânime). Dado real via SQL confirmou os achados dele (LINKUSD
+capturando centavos, UKOUSD 88%/92% de confiança tomando os 2 maiores
+losses) e achou causa técnica correlata: 223 cotações stale + 163
+rate-limit da MetaAPI em 30h, com o próprio prompt convidando a IA a
+"entrar mesmo assim, confie no stop mecânico" quando indicador vinha
+nulo — e 19 fechamentos discricionários (AI_SIGNAL) com 42,1% de acerto/
+-$14,79, pior que deixar o SL/TP mecânico decidir (100%/+$11,74 no mesmo
+período), incluindo 8 casos de lucro flutuante real devolvido.** 2 fixes
+implementados: `open_position` (`llm-active-brain/src/tools.ts`) recusa
+entrada se `get_mt5_quote` caiu no fallback (indicador nulo) NESTE ciclo,
+mesmo que o preço de preenchimento volte a ser fresco depois — antes era
+só aviso, agora é trava dura; `close_position` suspende avaliação
+discricionária inteira por flag (`aiSignalDiscretionaryCloseEnabled` em
+`config.ts`, default `false`) — rechecagem mecânica de SL/TP no início da
+função continua intocada, só a avaliação discricionária que vem depois
+fica bloqueada. Confiança declarada (85,3% vencedora vs 84,3% perdedora —
+sem poder preditivo real) e piso mínimo de captura ($3/trade) ficaram
+DELIBERADAMENTE de fora desta rodada — conselho unânime contra mexer em
+mais de uma coisa por vez (mesmo erro catalogado em 2026-09-04). Proposta
+de usar a folga de frequência pra operar mais agressivo (pyramiding,
+ampliar cesta) foi rejeitada por unanimidade nas revisões cruzadas.
+`tsc --noEmit` limpo, `npm run validate` 37/37. **Protocolo de validação
+por escrito (não pular)**: 5 dias úteis OU 40 trades fechados sob os 2
+fixes, sem nenhuma outra mudança de mecânica no período — critério de
+sucesso payoff ratio > 1,0:1 E win rate ≥ 45% sustentados; senão, volta ao
+conselho antes de qualquer novo ajuste. **Pendente**: `git commit` +
+`./restart.sh` (dentro de `llm-active-brain/`), aguardando Cleber rodar.
+
+**[RESOLVIDO 2026-09-09→11] Overshoot de stop no LLM Brain (BTCUSD fechou
+115 pontos além do stop, watchdog lia cotação de até 12s) corrigido via
+llm-council (2 rodadas) — validado ao vivo em 2026-09-11: overshoot caiu
+pra 0,2%-16% do risco (era ~250%), sem aumento de rate-limit da MetaAPI.
+UKOUSD/SOLUSD ficam na cesta por decisão do Cleber (não mexer por
+enquanto). Detalhe:
+[SESSAO_2026-09-09_CONSELHO_LLM_PAYOFF_INVERTIDO_E_WATCHDOG_OVERSHOOT.md](SESSAO_2026-09-09_CONSELHO_LLM_PAYOFF_INVERTIDO_E_WATCHDOG_OVERSHOOT.md).
+
+**[EM ANDAMENTO 2026-09-09] Dev Lab ganhou seção nova "Sugestões da IA para
+Desenvolvimento" — ambiente onde a IA propõe melhorias pra própria
+plataforma, distinto da aba de pesquisa de concorrente evidenciada.**
+Pedido do Cleber (Dev Lab já existe no menu Sistema). Nova aba no
+`DevLab.tsx` com botão "Gerar sugestões com IA" (campo de foco opcional) —
+chama Edge Function nova `dev-lab-ai-suggestions` (LLM, mesmos 3
+provedores/secrets do NEXUS: `LLM_PROVIDER`/`NVIDIA_API_KEY`/etc, sem
+tool-use, só pede um JSON de sugestões), grava em `dev_lab_suggestions` com
+`source_type='AI_SUGGESTION'` — tipo NOVO, deliberadamente separado de
+`AI_RESEARCH` (que exige evidência real de concorrente): aqui é opinião do
+modelo sobre o produto, nunca apresentada como fato comprovado, sem
+`evidence`/`competitor_url`. `tsc --noEmit` sem erro novo, `deno check`
+limpo na function nova. **Pendente**: migration
+`20260909_add_ai_suggestion_source_type.sql` (adiciona `AI_SUGGESTION` ao
+CHECK de `source_type`) — Cleber rodar no SQL Editor; deploy da function
+(`supabase functions deploy dev-lab-ai-suggestions --no-verify-jwt` não é
+necessário, ela já valida JWT do usuário internamente — usar
+`supabase functions deploy dev-lab-ai-suggestions`); `git commit`. Não
+testado ao vivo ainda (depende da migration + deploy). **Complemento na
+mesma sessão**: paginação de 20 sugestões por página em toda seção do Dev
+Lab (Ativas/Concluídas/Lixeira/Sugestões da IA — reseta pra página 1 ao
+trocar de aba/categoria) + fila de "Sugestões da IA" com reposição
+automática: concluir uma sugestão de IA (`source_type='AI_SUGGESTION'`)
+dispara sozinho a geração de 1 sugestão nova pra repor (nunca ao só
+descartar/reabrir, pra não gastar chamada de LLM à toa) — Edge Function
+ganhou parâmetro `count` opcional (1-10, default 5) pra suportar tanto a
+geração manual em lote quanto essa reposição de 1. **Complemento 2, mesma sessão**: categoria nova
+"Segurança" (`SECURITY`) no Dev Lab (pedido explícito do Cleber, a
+mensagem original tinha sido cortada em "Securit...") — nova migration
+`20260909_add_security_category_dev_lab.sql`; e botão "Preencher 20 por
+categoria" na aba Sugestões da IA — roda sequencialmente por TODAS as
+categorias (inclusive a nova Segurança), pedindo só o que falta pra cada
+uma chegar em 20 ativas (pula categoria já cheia), Edge Function ganhou
+`category` fixo no body que força a categoria da linha inserida (nunca
+confia no que o modelo devolveu nesse campo quando é chamada com
+categoria alvo). **Importante, decisão consciente**: isto vale só pra
+"Sugestões da IA" (opinião do modelo, sem exigir fonte) — a aba "Pesquisas
+de concorrente" (`AI_RESEARCH`) exige evidência real (URL/citação de
+concorrente de verdade) por disciplina do projeto (nunca fabricar dado);
+não gerei 20/categoria ali por não ter feito pesquisa real categoria a
+categoria nesta sessão — se quiser isso, é um trabalho de pesquisa (usar
+WebSearch/WebFetch de verdade por categoria), não geração em lote.
+
+**[EM ANDAMENTO 2026-09-09] Limpeza de itens de menu não usados + telemetria
+real de sessão (IP/geolocalização/dispositivo/presença) implementada,
+ligada a Termos de Uso reais (antes não existia nenhum) — código pronto,
+`tsc --noEmit` limpo, mas deploy da Edge Function `server` bloqueado pelo
+classificador de segurança do Claude Code (ação em infraestrutura
+compartilhada), aguardando Cleber rodar `supabase functions deploy
+server`.** De carona: bug corrigido em `UserDataDashboard.tsx` (mandava
+anon key pública em vez de JWT de admin real pra `/user-data`). Detalhe
+completo, incluindo a decisão de base legal (Termos de Uso, sem banner de
+opt-in separado) e geolocalização resolvida no servidor (nunca exposta a
+terceiro pelo navegador):
+[SESSAO_2026-09-09_MENU_LIMPEZA_TELEMETRIA_LGPD.md](SESSAO_2026-09-09_MENU_LIMPEZA_TELEMETRIA_LGPD.md).
+
+**[RESOLVIDO 2026-09-09] LLM Brain ficou o dia inteiro sem evoluir o
+capital da conta real — `llm-council` convocado, achado de governança
+grave corrigido: `.env` sobrepunha stop/risco vigentes (1.0x ATR/9% em
+vez de 2.0x/3% decididos) há dias sem ninguém notar, mesmo padrão que já
+derrubou acerto 80%→33% em 04/09.** Diagnóstico real via SQL (61 trades):
+81% das entradas nunca chegam a 1R, gate de confiança invertido
+(confiança alta = resultado PIOR), `indicators_snapshot` NULL em 100%
+dos trades. Consenso do conselho: não buscar edge novo, não apertar
+seletividade ainda (amostra contaminada pela divergência de parâmetro) —
+corrigir governança primeiro, rodar fixo 5 dias/40+ trades depois. Meta
+de $10/dia sobre $100 (~1000%/mês) é matematicamente insustentável,
+unânime entre os 5 conselheiros — é decisão de capital-base do Cleber,
+não parâmetro de engenharia. 2 fixes aplicados e commitados: `.env`
+revertido + aviso automático de governança no boot (`bdef0327c`);
+`indicators_snapshot` deixa de ser NULL, passa a gravar o mesmo dado real
+que `get_mt5_quote` já calcula (`c73c6b63e`). Detalhe completo:
+[SESSAO_2026-09-09_LLM_COUNCIL_GOVERNANCA_ENV_E_SNAPSHOT.md](SESSAO_2026-09-09_LLM_COUNCIL_GOVERNANCA_ENV_E_SNAPSHOT.md).
+
+**[RESOLVIDO 2026-09-09] Primeiro teste de execução REAL (LIVE) na Infinox
+com $22 — trilho novo construído do zero, terminou em Stop Out (saldo real
+foi a $0) depois de um erro de operação (4 posições opostas abertas na
+mesma conta pequena), e um bug real grave corrigido: o banco não
+sincronizava sozinho quando a corretora fechava posição por fora da
+plataforma.** Antes do código, `llm-council` rodado sobre a decisão —
+veredito contra, Cleber seguiu mesmo assim, ciente do risco. Construído:
+`liveExecution.ts` (novo, execução real dinâmica por usuário — conectar/
+desconectar pela UI liga/desliga sem restart), boleta manual passou a
+gravar ordem real em `ai_trades` (antes só ia pro ledger de auditoria,
+nunca aparecia no Gráfico), card de Margem/Margem Líquida no Dashboard,
+badge DEMO/LIVE do Header corrigido pra ler a fonte de verdade real e
+virou clicável (desconecta). Achado mais grave: `DELETE /broker/credentials`
+sempre chamava `undeploy` numa conta que é COMPARTILHADA (serve streaming
+de preço pra toda a plataforma) — corrigido, precisou de deploy manual da
+Edge Function (já feito). Achado do incidente: o circuit breaker de
+segurança também cegava a reconciliação que deveria detectar Stop Out
+sozinha — corrigido, reconciliação agora roda sempre, fecha posição
+sumida da corretora automaticamente. Detalhe completo, incluindo lista de
+7 bugs de UI corrigidos no caminho:
+[SESSAO_2026-09-09_EXECUCAO_REAL_LIVE_METAAPI_STOP_OUT.md](SESSAO_2026-09-09_EXECUCAO_REAL_LIVE_METAAPI_STOP_OUT.md).
+**Pendente real**: decidir sizing mínimo seguro pra próximo teste (capital
+tão pequeno não sobrevive nem a um erro básico de operação); item de zoom
+do gráfico não segurando ficou parcialmente investigado, não fechado.
+
+**[RESOLVIDO 2026-09-08, à noite] Menu "Configurações" do desenho (clique
+numa trendline) estava morto de verdade — botão existia mas nenhum painel
+renderizava; agora reúne cor/espessura/estilo + "ir para o preço" (linha
+salta pra um nível exato digitado).** Causa: `showSettingsModal` era setado
+mas nunca lido em JSX nenhum. Cor nunca teve UI (só espessura/estilo já
+existiam). Detalhe completo:
+[SESSAO_2026-09-08_MENU_CONFIGURACOES_DESENHO_IR_PARA_PRECO.md](SESSAO_2026-09-08_MENU_CONFIGURACOES_DESENHO_IR_PARA_PRECO.md).
+`tsc --noEmit` limpo (417 erros pré-existentes, nenhum novo). Não testado ao
+vivo (dev local exige login). Commit pronto, aguardando Cleber rodar.
+
+**[RESOLVIDO 2026-09-08, à noite] Conexão real (LIVE) do MetaTrader desligada
+a pedido do Cleber — achado real: era a mesma conta MetaAPI do streaming de
+preço da plataforma inteira.** Cleber conectou a corretora em modo real
+(login `87026945`, `InfinoxLimited-MT5Live`) e depois pediu pra desligar,
+mantendo só DEMO — relatou que "a conexão não quer desligar". Achado: o
+`account_id` gravado em `broker_credentials` (`bb99f865-96fb-4573-98a7-
+1f32895f84f7`) é a MESMA conta MetaAPI dedicada que o `streaming-relay` usa
+pra transmitir preço em tempo real pra todos os usuários (inclusive as
+posições DEMO do LLM Brain) — o endpoint existente `DELETE /broker/credentials`
+não só apaga o registro, também chama `undeploy` na própria conta MetaAPI,
+o que derrubaria o streaming da plataforma inteira. Como Cleber pediu
+explicitamente pra não afetar as posições DEMO abertas (5 na sessão
+`e6ca2cf7...`: UKOUSD, NAS100, AUS200, EURUSD, UKOUSD), a linha foi apagada
+direto via SQL (`DELETE FROM broker_credentials WHERE user_id=...`) SEM
+chamar undeploy — conta MetaAPI continua deployada, streaming/DEMO
+intactos, só a capacidade de execução real foi removida. Confirmado que as
+5 posições OPEN continuam no banco. De carona: rotacionado o token MetaAPI
+(`METAAPI_TOKEN`) nesta mesma sessão, aplicado em `streaming-relay/.env`
+(local) e secret do Supabase (produção) — nenhuma mudança de código, nada
+a commitar.
+
+**[RESOLVIDO 2026-09-08, à noite] LLM Brain ganhou tendência de longo prazo
+(1H/~1dia) + leitura de notícias reais a cada 3h — Cleber achou a IA "cega"
+ao contexto do dia depois de ver um LONG em BTCUSD que ele leu como
+rompimento de fundo/mercado vendedor.** Investigação real via
+`ai_brain_activity_log`: a entrada (10:59 UTC, confiança 85%) não foi
+fabricação nem ignorou trava — a IA só enxergava `trend` numa janela curta
+(180min, escalada pelo timeframe operacional) e leu "pullback numa alta",
+sem noção do quadro mais amplo do dia. Dois fixes: (1) `trendLongTerm` novo
+em `atr.ts`/`tools.ts` (`getLongTermTrendInfo`, timeframe FIXO 1H, ~24
+velas) devolvido junto de `trend` em `get_mt5_quote`, com aviso explícito
+"DIVERGENCIA DE TENDENCIA" quando os dois prazos apontam pra lados opostos
+— novo princípio 1a no prompt (`agent.ts`) instrui a nunca tratar isso como
+"a favor da tendência" sem confirmação extra; (2) `news.ts` novo —
+manchetes reais (RSS Investing.com/Cointelegraph/CNBC/Money Times, MESMO
+endpoint `/news/aggregate` que o Dashboard já usa, gratuito, nunca
+fabricado) injetadas no contexto de todo ciclo, cache/registro no log de
+atividade a cada 3h (pedido explícito do Cleber), novo princípio 1h no
+prompt orientando uso como contexto qualitativo — nunca sinal mecânico
+(pesquisa anterior do projeto já fechou que notícia/calendário sozinho não
+tem edge direcional comprovado, ver seção "Cérebro de decisão" abaixo).
+`tsc --noEmit` limpo (engine + frontend). Commit pronto, aguardando Cleber
+rodar `git commit` + `./restart.sh` (dentro de `llm-active-brain/`). Sem
+validação estatística ainda — mudança de contexto/julgamento, não trava
+mecânica nova, precisa de amostra rodando pra avaliar efeito real.
+
+**[RESOLVIDO 2026-09-08, ~16:44 UTC] Gráfico não abria pra EURUSD (e todo o
+resto) — conta MetaAPI voltou a responder sozinha, sem ação nossa.**
+Confirmado ao vivo: `/mt5-prices` (mesmo endpoint, auth anon) devolveu preço
+real e fresco pra EURUSD (1,16208), XAUUSD (4393,65) e NAS100 (29563,49) às
+16:44 UTC — HTTP 200 com dado, não mais 504. Não sabemos a causa exata do
+lado da MetaAPI (recuperação espontânea antes da resposta do chamado de
+suporte, aberto ~11h antes) — não fizemos nenhuma mudança de código/infra
+nesta janela. Se o Cleber ainda ver Dashboard/Gráfico travado, é cache do
+navegador — recarregar a página resolve. Detalhe original do travamento
+abaixo, mantido por contexto:
+
+**[HISTÓRICO 2026-09-08] Gráfico não abria pra EURUSD (e todo o resto) —
+conta MetaAPI dedicada nova (bb99f865...) travada, `connectionStatus` diz
+CONNECTED mas recusa toda chamada real; código/streaming-relay descartados
+como causa via teste isolado; chamado de suporte já enviado à MetaAPI,
+aguardando resposta (SLA deles ~3h).** Cleber reportou "EURUSD não abre o
+gráfico" — investigado com log ao vivo do Supabase + log local do
+`streaming-relay` + consulta direta à API da MetaAPI. **Achado real**: não
+é bug de símbolo nenhum — TODOS os ativos MetaAPI falhando com HTTP 504
+(`/mt5-prices` e `/mt5-candles-history`), "not connected to broker yet",
+sustentado desde ~08:08 UTC (cripto via Binance direta, ex. BTCUSD, não é
+afetada). Confirmado via `GET .../accounts/bb99f865...` (API de
+provisionamento, consultada repetidas vezes): `state: DEPLOYED`,
+`connectionStatus: CONNECTED` o tempo todo, SEM flapping — mas recusa
+quase toda operação real. Achado técnico provável: conta é tier
+`reliability: "high"` mas com `resourceSlots: 1` e `accountReplicas: []`
+— sem réplica de failover. **Teste real feito depois, a pedido do
+Cleber** (suspeita de que o `streaming-relay`, religado no mesmo dia em
+que essa conta foi criada, estivesse sobrecarregando o único slot):
+`launchd` agent (`com.neuralday.streaming-relay.plist`) descarregado por
+completo, processo parado por 5+min, `/mt5-prices` retestado 5x — EURUSD/
+XAUUSD continuaram 504 o tempo todo, idêntico a com o relay ligado.
+**Descarta o streaming-relay como causa** — o problema é da conta em si,
+independente de quem a consulta (mesmo achado do log já indicava isso: o
+log do relay mostra 5h+ de streaming limpo, com 361 símbolos, antes do
+primeiro sinal de degradação às 08:05 UTC — não quebrou "na hora" de ligar
+o streaming). `launchd` agent religado depois do teste, relay de volta ao
+ar normalmente. Reduzir a cesta de streaming pra 39 símbolos
+(`0d98cbad3`) também não teve efeito na taxa de falha REST, mesma
+conclusão. **Pendente real**: chamado de suporte com a MetaAPI **já
+enviado pelo Cleber** (SLA deles costuma ser ~3h de resposta) — opções em
+aberto: esperar recuperação espontânea, reclamar do SLA dessa conta
+dedicada paga, ou pedir upgrade pra 2 `resourceSlots` (custo extra,
+decisão do Cleber). Ainda travado na última checagem (11:44 UTC).
+**Atualização (12:xx UTC)**: Cleber confirmou por print que não é só o
+Gráfico — Dashboard inteiro afetado (posições EURUSD/NAS100/AUS200 com
+"Atual" == "Entrada" travado, ticker de índices do rodapé em `$---`),
+enquanto cripto (BTCUSD via Binance direta) continua atualizando normal —
+mesma correlação já esperada (tudo MetaAPI trava, tudo não-MetaAPI
+funciona), não é achado novo, só mais uma confirmação visual. Suporte da
+MetaAPI (bot "Fin") sugeriu checar cobrança pendente em
+`app.metaapi.cloud/billing` — Cleber confirmou que **não há problema de
+pagamento**, faturamento limpo. Resposta técnica preparada (descarta
+faturamento, pede checagem de sincronização do lado deles) mas Cleber
+mandou por engano na caixa de mensagem errada do chat; reaberto no lugar
+certo depois — chamado agora está de fato registrado e aguardando resposta
+(SLA ~3h, contado a partir de agora). Nada mais acionável do nosso lado até
+a resposta chegar.
+
+**[RESOLVIDO 2026-09-08, à noite] Gráfico "Ativo desconhecido: JPN225" +
+nome/ícone mostrando Bitcoin — catálogo do frontend não tinha os nomes
+reais da corretora pra 2 dos 4 índices asiáticos recém-adicionados à
+cesta do LLM Brain.** Cleber reportou boleta de JPN225 dizendo "Ativo
+desconhecido" e o header mostrando "Bitcoin" como nome. Causa: mesma
+classe de bug já catalogada várias vezes (BTCXBN/DOGUSD/LNKUSD) —
+`assetDatabase.ts` só tinha os aliases de exibição `JP225`/`HK50`, nunca
+os nomes reais `JPN225`/`HKG33` que o LLM Brain passou a usar na sessão
+de mais cedo hoje (`AUS200`/`CHINA50` já batiam, não precisavam de
+alias). Adicionadas as 2 entradas faltantes. De carona, achado que o
+nome do ativo no header do Gráfico (`ChartView.tsx`) caía num fallback
+**hardcoded pra "Bitcoin"** sempre que o símbolo não era reconhecido —
+corrigido pra mostrar o próprio símbolo em vez de mentir. `tsc --noEmit`:
+634 erros antes e depois (mesmo ruído pré-existente), nenhum novo.
+Commit pronto, aguardando Cleber rodar (não precisa de restart do
+`llm-active-brain`, é só frontend).
+
+**[RESOLVIDO 2026-09-08] Gate de confiança mínima ajustado 70%→75% + cesta
+do LLM Brain ampliada com AUS200/JPN225/HKG33/CHINA50 (conversão cambial
+real, não $1/ponto) — commitado, aguardando Cleber rodar `restart.sh`.**
+Pedidos do Cleber nesta sessão: (1) `MIN_CONFIDENCE_FOR_OPEN_POSITION`
+(`tools.ts`) subido de 70%→75% — nota: o handoff anterior registrava 80%,
+divergência real entre doc e código, corrigida (o valor de fábrica era
+70%, fixo desde 04b051f2d); (2) Cleber pediu explicitamente cortar o stop
+de 2.0x ATR pra 0.9x — **rejeitado por mim, confirmado pelo Cleber**, ao
+lembrar do precedente já documentado (corte igual em 2026-09-04 derrubou
+acerto de 80%→33%); mantido 2.0x; (3) **achado real**: Setup configurava
+16 ativos, motor só reconhecia 12 — `HK50`/`CHINA50`/`JP225`/`AUS200`
+descartados em silêncio (`neuralBridge.ts`, log de warning já existente
+de 2026-09-06 pegou o caso). Corrigido de verdade, não só logado: os 4
+confirmados reais ao vivo contra `/mt5-prices` (nomes de corretora
+`JPN225`/`HKG33`/`AUS200`/`CHINA50`, `JP225`/`HK50` precisam de alias,
+`AUS200`/`CHINA50` já batem) — mas esses 4 têm `pointValue` real em
+moeda ESTRANGEIRA (`infinoxContractSpecs.ts`: AUS200 10 AUD, JPN225 5
+JPY, HKG33 10 HKD, CHINA50 10 CNY), então `LOT_SIZE=1` teria repetido o
+bug de PnL 20x do NAS100 (2026-08-27) por câmbio em vez de contrato
+E-mini errado. Convertido pra USD com cotação REAL AUDUSD/USDJPY/USDHKD/
+USDCNH desta mesma corretora, testada ao vivo antes de aplicar — **não é
+dinâmico/live** (câmbio pode driftar com o tempo), é aproximação muito
+melhor que $1/ponto mas fica marcado pra revisitar se o câmbio se mover
+bastante. De carona: achado que `FRA40` (adicionado em 2026-09-07) tinha
+ficado fora de `WEEKEND_CLOSED_SYMBOLS`/`CORRELATED_GROUPS` — corrigido
+junto. `tsc --noEmit` limpo. Commit pronto, aguardando Cleber rodar
+`./restart.sh` (dentro de `llm-active-brain/`, não na raiz — script não
+existe na raiz do projeto, achado nesta sessão).
+
+**[RESOLVIDO 2026-09-08] Cleber contratou conta MetaAPI dedicada pra
+reduzir delay de preço — `streaming-relay/` (WebSocket direto) religado e
+CONFIRMADO AO VIVO, token/conta novos aplicados em produção.** Cleber
+perguntou se dava pra tirar o delay de preço com a conta nova — achado
+real: o streaming via push já tinha sido construído (2026-07-14) e chegou
+a funcionar em produção, mas foi desligado em 2026-07-23 porque rodava sem
+gestão (`launchd` no Mac do Cleber, `KeepAlive` sem teto) e entrou em loop
+infinito de reconexão ("account not connected to broker yet"), martelando
+a conta MetaAPI **compartilhada** 24h/dia sozinho — causa raiz de "ativos
+zerados" que levou dias pra achar na época. 2 problemas reais corrigidos
+antes de religar: (1) o build nunca compilava de verdade (`tsc` dava
+`TS5097` no jeito que `brokerRegistry.ts` importa `assetDatabase.ts`) —
+trocado pra `esbuild`, testado local (typecheck limpo, bundle roda); (2)
+causa raiz do incidente de 07-23 — conexão MetaAPI ganhou timeout de 60s
+por tentativa e backoff exponencial (15s→5min) antes de sair, nunca mais
+reconecta sem teto; `launchd` ganhou `ThrottleInterval` como piso extra
+redundante. Cogitado hospedar em Fly.io (seria "sempre-ligado" de verdade,
+independente do Mac), mas exige cartão cadastrado — Cleber optou por
+continuar local por enquanto (limitação aceita: só transmite com o Mac
+ligado, cai pro polling HTTP normal se desligar, sem quebrar nada).
+Frontend já consumia via `subscribeToRealtimePrice`/`turbo-main-channel`
+em vários componentes do Dashboard (`MarketScoreBoard`,
+`LiquidityPrediction`, etc.) desde 2026-07-14 — só o relay em si estava
+desligado, nenhuma mudança de frontend foi necessária. Cleber gerou um
+token novo pra conta dedicada (id `bb99f865-96fb-4573-98a7-1f32895f84f7`)
+— aplicado nos 2 lugares: `streaming-relay/.env` local (nunca commitado) e
+secret `METAAPI_TOKEN`/`METAAPI_ACCOUNT_ID` do Supabase (produção, via
+`supabase secrets set`, rodado pelo Cleber). **Confirmado ao vivo nos dois
+lados**: `relay.log` mostrou `🚀 Streaming ativo pra 361 símbolos.` sem
+loop de erro (as falhas de assinatura que aparecem, tipo `ONEUSD`/ações
+`.L`/`.PA`/`.DE`, são símbolos que não existem nessa corretora, tratadas
+normalmente, não é o bug antigo); `curl` direto em `/mt5-prices` (produção)
+confirmou cotação real de EURUSD com o token novo. Commits `9465a72d1`
+(hardening do relay) e `97b560784` (doc) já em `origin/dev`.
+
+**[RESOLVIDO 2026-09-07, noite] Cards de posição do AI Trader clicáveis +
+linhas de Fibonacci/S&R quase invisíveis (1px) + zonas de resistência
+sumindo do gráfico por bug real de dedup — tudo commitado.** Pedidos do
+Cleber nesta sessão: (1) cards de posição na tela AI Trader (`AITrader.tsx`)
+agora clicáveis, `setSelectedAsset` + `onNavigate('chart')`, mesmo padrão já
+usado no Dashboard (`MarketScoreBoard.tsx`); (2) linhas de Fibonacci
+(retração/extensão/círculos/leque/arcos, `ChartView.tsx`) estavam com
+`size:1`, quase invisíveis — subidas pra 4px; achado no caminho: o overlay
+customizado `fibonacciExtension` (e os outros 3 customizados) tinham
+espessura/cor HARDCODED direto na figure, ignorando `overlay.styles` por
+completo — o menu de clique direito → Estilo (que já funciona pra todo o
+resto do gráfico) não tinha nenhum efeito nessas 4 ferramentas. Corrigido
+pra ler `overlay.styles.line.size/color` de verdade (default de fábrica
+continua 4px, mas agora configurável pelo mesmo menu de Estilo, como pedido
+explicitamente pelo Cleber — "é lá que será feito o setup da ferramenta");
+(3) **bug real achado à parte**: zonas de resistência (Order Blocks
+bearish) sumiam do gráfico por completo, só as de suporte apareciam —
+causa em `combineOrderBlockZones`: o dedup comparava sobreposição de preço
+contra QUALQUER zona já aceita sem checar o TIPO, então uma zona de
+resistência podia ser descartada como "duplicata" de uma zona de suporte
+mais forte cujo range (principalmente as macro de 1D/~5 anos, bem largas)
+por acaso se sobrepunha, mesmo sendo tipos opostos e níveis reais
+distintos — corrigido pra só comparar zonas do mesmo tipo entre si, e a
+seleção final das zonas visíveis (`renderSrOverlays`) balanceada pra
+reservar metade do teto pra cada lado (antes cortava só pelas N mais
+fortes no total, podendo devolver só um lado quando um tipo dominava em
+força). `tsc --noEmit`: 417 erros antes e depois (mesmo ruído
+pré-existente), nenhum novo. 3 commits já aplicados.
+
+**[RESOLVIDO 2026-09-07, noite] Comentário morto em `tools.ts` contradizia
+o gate de confiança ativo — corrigido, commit pendente.** Investigando "por
+que a IA não abre posição" (achado real: seletividade correta em sessão
+ASIA lateral, não bug), achado um comentário desatualizado em
+`open_position` (`llm-active-brain/src/tools.ts`, ~linha 971) dizendo que o
+gate de confiança mínima tinha sido REMOVIDO (do revert `c510c1074`), mas
+o `if` que bloqueia abaixo de 70% (`MIN_CONFIDENCE_FOR_OPEN_POSITION`,
+commit `04b051f2d`, reintroduzido no mesmo dia) continuava ativo no
+código — comentário e código se contradiziam. Corrigido só o comentário,
+comportamento intocado (gate de 70% sempre esteve ativo, nenhuma entrada
+foi bloqueada por ele até agora). `tsc --noEmit` limpo. Commit pronto,
+aguardando Cleber rodar.
+
+**[EM ANDAMENTO 2026-09-07] Monitoramento contínuo do LLM Brain — teto de
+frequência substituído por gate de confiança mínima, sizing "forte"
+dobrado, e achado real de fechamento discricionário ruim.** Pedido do
+Cleber: monitorar de 5 em 5min e evoluir a IA rumo a "perde pouco, ganha
+muito". Achados e mudanças, todas ativas no motor rodando (nenhuma
+commitada — comandos entregues, aguardando Cleber rodar):
+(1) **Achado real via SQL** (48h, sessão `6d0ada13...`): fechamentos
+discricionários da própria IA (`AI_SIGNAL`, `close_position`) eram o 2º
+maior ralo de dinheiro da sessão, quase empatado com stop-loss — 11 de 13
+viraram perda, ganho médio 3x menor que o do alvo mecânico. Fix: barra de
+invalidação técnica pra corte antecipado subida de ≥2 pra ≥3 fatores reais
+(`tools.ts`), commit `340103477` já aplicado.
+(2) **Teto de frequência (16/24 entradas-por-24h) virou o próprio
+gargalo** — travava testes de mudanças recém-aplicadas porque o contador
+ainda carregava entradas antigas contra o teto novo do dia útil, sem
+margem pra operar. Decisão explícita do Cleber, revertendo o "15-16" de
+2026-09-05: frequência não é o objetivo do produto, assertividade é.
+Substituído por um **gate de confiança mínima em `open_position`**
+(campo `confidence`, já existia no schema, nunca era usado — só logado):
+exige ≥80% (subiu de 65% no mesmo dia) antes de qualquer checagem cara.
+Teto de frequência subido pra 60 (dia útil e fim de semana), vira rede de
+segurança contra loop desgovernado, não limite prático.
+(3) **"Carregue mais na mão"** — multiplicador de `size:"forte"` subido de
+1.5x pra 2.0x (`config.ts`); prompt do agente e schema da ferramenta
+reescritos (antes diziam "forte deveria ser exceção", contradizia o gate
+novo — agora dizem que toda entrada aceita já é alta convicção por
+definição).
+(4) FRA40 adicionado à cesta (símbolo real confirmado contra o broker
+antes de adicionar) — HK50/JP225/CHINA50 ficaram de fora, só existem sob
+nomes diferentes na corretora (HKG33/JPN225) e têm `tickValue` em moeda
+estrangeira não confirmado como $1/ponto (mesma classe do bug de PnL 20x
+do NAS100) — pendente de verificação antes de adicionar.
+(5) **Achado de processo, não de código**: a sessão flipou sozinha pra
+`STOPPED` 2x no meio do dia (07:46 e ~08:00) mesmo com o motor rodando
+normalmente — Cleber confirmou que foi ele mesmo (clique acidental/aba
+desatualizada), corrigido via SQL direto cada vez.
+(6) **Painel "Logs do Sistema"/"Atividade da IA" colorizava tentativa
+bloqueada de `open_position` igual a execução real** (verde "EXECUTION"
+mesmo com "Posicao NAO aberta" na mensagem) — causa: cor dependia só de a
+string conter "EXECUTION", sem checar se a ferramenta teve sucesso. Fix
+em `useApexLogic.ts` reaproveitando a mesma checagem que já existia pro
+som de abertura (`result` sem chave `error` = sucesso real) — tentativa
+bloqueada agora usa "🚫 TENTATIVA:", não fica mais verde.
+(7) Confirmado que o mecanismo de atenção redobrada ao pré-mercado/
+abertura americana (`nySessionPhase`: PRE_MERCADO 09:00-09:30, MOVIMENTO
+09:30-10:00, ABERTURA 10:00-10:15, horário de Brasília) **já existia**
+de sessão anterior e está funcionando corretamente ao vivo — não precisou
+de mudança de código, só confirmação.
+(8) **Pedido de encolher o stop REJEITADO pelo Cleber depois de ver o
+precedente real.** Cleber viu no gráfico (FRA40 LONG aberta, stop a 24,89
+pts da entrada) e pediu proporção equivalente a uma linha de suporte que
+desenhou (~11,4 pts, ≈0,9x o multiplicador atual). Antes de aplicar,
+mostrado o achado já documentado logo abaixo neste arquivo
+(`mt5StopAtrMultiplier`, linha ~259 do `config.ts`): esse EXATO tipo de
+corte já foi testado em 2026-09-04 (2.0x→1.3x→0.65x no mesmo dia) e a
+taxa de acerto caiu de 80%→33%, com SL virando de "lucro protegido"
+(trailing/breakeven) pra perda real. Cleber decidiu **manter 2.0x**, sem
+aplicar o corte — decisão consciente, não ignorou o precedente.
+Monitoramento de 5min suspenso a pedido do Cleber ao fim da sessão.
+**Pendente**: `git commit` dos itens 1-4/6 acima (comandos prontos,
+entregues ao Cleber — eu não commito sozinho, é regra fixa do projeto, já
+errei isso uma vez nesta mesma sessão). Amostra pós-mudança (gate 80%/
+forte 2x) ainda pequena (1-2 trades fechados, 2 abertas em aberto no fim
+da sessão: FRA40 LONG e UKOUSD SHORT) — falta acumular 5+ fechados pra
+ler payoff de verdade e comparar contra o histórico pré-mudança (payoff
+1,39:1, 41% acerto, 48h).
+
+**[RESOLVIDO 2026-09-07] Heartbeat "(iteração N)" poluindo Atividade da
+IA/Logs do Sistema — removido e processo reiniciado.** Cleber pediu pra
+retirar a linha "Analisando cesta e posições abertas (iteração N)..." que
+aparecia repetida a cada loop do ciclo em ambos os painéis (mesmo canal
+`ai_brain_activity_log`). Causa: heartbeat adicionado em 2026-09-06 pra
+mostrar que a inferência local (Ollama) estava "viva" durante o 1-3min de
+espera por ciclo — virou ruído. Removido o bloco `logBrainActivity` em
+`llm-active-brain/src/agent.ts` (dentro do loop de iteração, antes da
+chamada ao modelo). Commit `054c3c104`, processo reiniciado ao vivo (PID
+78001) — confirmado sem gerar linha nova a partir do ciclo 1. **Pendente,
+não resolvido**: linhas antigas com "(iteração N)" já gravadas no banco
+continuam visíveis no histórico do painel (fix só impede novas linhas) —
+perguntei ao Cleber se quer apagar via SQL, sem resposta ainda.
+
+**[RESOLVIDO 2026-09-06] Motor LLM Brain travava indefinidamente sem abrir
+posição nenhuma — deadlock real entre 2 gates de `tools.ts` quando a cesta
+do usuário mudava com uma posição já aberta fora dela.** Cleber reportou
+"motor não abre posição"; achado ao vivo no log: havia uma posição órfã em
+DOGUSD (`activeAssets` atual não incluía mais DOGUSD) e `get_mt5_quote`
+recusava cotar qualquer símbolo fora da cesta — inclusive o da própria
+posição aberta — enquanto `close_position` exigia exatamente essa cotação
+no mesmo ciclo pra fechar. Sem saída legítima, a IA gastava o ciclo
+inteiro (confirmado: 22+min sem terminar o ciclo 1) tentando essa dança
+impossível, nunca chegando a avaliar entradas novas. Corrigido em
+`get_mt5_quote` (`llm-active-brain/src/tools.ts`): permite cotar um
+símbolo fora da cesta SE houver posição aberta nele nesta sessão
+(`open_position` mantém o gate de cesta intocado — não abre porta pra
+entrada nova fora do escolhido). Reiniciado ao vivo, confirmado resolvido:
+ciclo 1 concluiu normalmente, IA avaliou a cesta e tentou abrir BTCUSD/
+XAUUSD, bloqueada só pelo teto de frequência de 24h (gate correto,
+não-relacionado). De carona, 2 achados novos: (1) o mesmo fechamento
+manual do Cleber na posição DOGUSD órfã saiu com `exit_price` idêntico ao
+`entry_price` (PnL fabricado ~$0) — causa: `RealMarketDataService.ts`
+(pipeline de preço do Dashboard) não sabia mapear símbolos reais de nome
+curto da corretora (DOGUSD/LNKUSD/ATMUSD/AVAUSD) pro par certo da Binance,
+gerando um ticker inexistente (`DOGUSDT`) e travando "Atual" no preço de
+entrada pra sempre — mesmo mapa do fix de candles de hoje (`market-service.ts`)
+replicado aqui; (2) `marketHours.ts` mostrava "mercado fechado" pra essas
+mesmas criptos reais (aplicava horário de CFD de fim de semana numa cripto
+24/7) por classificar tipo de mercado só por heurística de texto — agora
+consulta o catálogo real (`assetDatabase.ts`) primeiro. `tsc --noEmit`/
+`npm run validate` (37/37) limpos nos 3 arquivos. Commit `87645ebd3`, não
+pushado ainda.
+
+**[RESOLVIDO 2026-09-06] Gráfico "Ativo desconhecido" + candles falhando
+pra DOGUSD/LNKUSD/ATMUSD/AVAUSD/XETUSD — catálogo do frontend só conhecia
+o alias de exibição, não o nome real da corretora usado pelo LLM Brain.**
+Mesma classe de bug já catalogada pro BTCXBN: motor opera com nome real
+(`assetBasket.ts`), catálogo (`assetDatabase.ts`) só tinha o alias
+(DOGEUSD/LINKUSD/ATOMUSD/AVAXUSD). Adicionadas as 4 entradas reais
+faltantes + roteamento de candles corrigido (`market-service.ts`:
+`detectAssetType` classificava esses tickers como forex por conterem
+"USD", mandando pra MetaAPI em vez de Binance; adicionados os pares
+Binance corretos pra cesta cripto inteira do motor). `tsc --noEmit` sem
+erro novo. Commit pronto, não aplicado ainda.
+
+**[RESOLVIDO 2026-09-06] Som ao abrir posição da IA implementado, com
+toggle em Configurações → Geral.** Pedido do Cleber. Detecta
+`decision`/`open_position` bem-sucedido via Realtime de
+`ai_brain_activity_log` (mesmo canal do item "Logs do Sistema" abaixo) e
+toca um beep curto gerado via Web Audio API (sem asset de áudio no repo).
+Preferência liga/desliga persiste em `localStorage`
+(`neural_position_open_sound_enabled`, default ligado), mesmo padrão dos
+toggles de `TradingContext.tsx`. `tsc --noEmit` sem erro novo. Commit
+pronto, não aplicado ainda.
+
+**[RESOLVIDO 2026-09-06] Cesta do LLM Brain confirmada: 15 criptos, nenhum
+forex/índice.** Checado direto em `ai_user_config` (Supabase) a pedido do
+Cleber — `activeAssets` já tinha exatamente 15 símbolos cripto (BTCUSD,
+ETHUSD, DOGEUSD, DOTUSD, XRPUSD, SOLUSD, ADAUSD, LINKUSD, UNIUSD, TRXUSD,
+ATMUSD, XLMUSD, FILUSD, BNBUSD, AVAUSD). Linhas de "tick obsoleto" de
+EURUSD/XAUUSD/GER40/SPX500/NAS100/UK100/UKOUSD vistas no log eram resíduo
+de ciclos anteriores à config atual (log acumula dias), não sinal de cesta
+poluída. De carona: processo do LLM Brain reiniciado depois de a máquina
+suspender brevemente (erro `ENOTFOUND` de DNS no log) — watchdog religou
+sozinho, ciclo novo confirmado limpo.
+
+**[RESOLVIDO 2026-09-06] "Logs do Sistema" (tela do AI Trader) sempre vazio
+— causa raiz real, nova tabela `ai_brain_activity_log`, confirmado gravando
+ao vivo.** Causa raiz (catalogada desde 08-17, nunca corrigida até agora):
+o painel só recebia linha de um ciclo de trading que rodava NO NAVEGADOR
+— motor mecânico morto desde 08-31, LLM Brain roda como processo Node
+separado, nada nunca mais alimentava o painel. Corrigido com canal real:
+`ai_brain_activity_log` (migration aplicada pelo Cleber, RLS + Realtime),
+`llm-active-brain` grava ciclo a ciclo cada cotação consultada, ferramenta
+chamada, pensamento (`log_thought`) e decisão — nunca fabricado. Frontend
+(`useApexLogic.ts`) assina Realtime + fetch inicial, injeta no mesmo painel
+(`AITrader.tsx`, renomeado "Logs do Sistema — Atividade da IA"). `tsc
+--noEmit` limpo nos dois lados, confirmado via SQL direto que linhas reais
+já estão chegando. Pendência conhecida, não bloqueante: tabela sem limpeza
+automática ainda (cadência AGRESSIVA gera 10-30 linhas/ciclo) — considerar
+job periódico de retenção numa sessão futura.
+
+**[RESOLVIDO 2026-09-06] Tentativa de fix pro "motor não abre posição"
+(3ª recorrência do bug de estouro de teto de saída) TESTADA e REVERTIDA —
+piorou, não melhorou.** Hipótese: Qwen3.5 via Ollama "pensa" antes do
+tool-call e estoura `max_tokens` sem nunca chamar `open_position` mesmo
+narrando a decisão em `log_thought`. Testado ao vivo: `/no_think` no
+userMessage + `max_tokens` 4096→6144 — resultado real foi PIOR (modelo
+passou a inventar símbolos inexistentes, ciclo abortou por timeout de 90s
+sem nenhuma decisão). Revertido de volta ao estado anterior (que tinha
+payoff ratio 2.49 real em 6h). Lição registrada: não declarar fix bom por
+raciocínio teórico, só com prova ao vivo — bug de fundo (estouro de teto)
+continua sem solução real, próxima tentativa deveria mirar reduzir o
+tamanho do prompt/cesta por ciclo em vez de mexer em tokens/thinking.
+
+**[EM ANDAMENTO 2026-09-04, noite] Navegador de Ativos "sem dados" —
+1ª rodada (`16c5be1b6`, deployada) não bastou, 2ª causa real achada via log
+ao vivo do Supabase, fix novo pronto, aguardando deploy.** Cleber reportou
+dados não carregando no Navegador de Ativos (e suspeitou, corretamente, que
+afetaria o site todo). **Causa raiz #1** (corrigida em `16c5be1b6`): o
+semáforo de 3→2 vagas pro dado histórico da MetaAPI (`8cc89f4e6`, mais cedo
+no mesmo dia) resolvia o 429 crônico mas criava fila sem teto de espera —
+`acquireHistoricalDataSlotWithBudget` desacoplou o TICK (preço) do CANDLE
+(variação%, orçamento de 1,2s pela vaga, desiste sem travar o preço). Depois
+do deploy, Cleber reportou que AINDA não aparecia nada — investigação com
+`query_logs`/`get_edge_function` do Supabase (MCP) direto em produção achou
+**causa raiz #2, real e diferente**: mesmo com o candle desistindo rápido,
+um chunk de 40 símbolos com só 8 de concorrência (`mapWithConcurrency`)
+ainda levava ~10-10,3s pra terminar (confirmado nos logs ao vivo, ex. lote
+de pares forex às 23:16 UTC) — bem em cima do timeout de 10s do fetch no
+cliente, abortando o chunk por margem mínima mesmo com dado real chegando
+segundos depois. Fix: concorrência subida 8→20 (só o TICK, que não é
+limitado pelo teto de 5 da MetaAPI — o candle continua preso aos 2 do
+semáforo) + timeout do cliente 10s→20s de folga
+(`RealMarketDataService.ts`). **Achado #3, bug separado e mais antigo,
+também real**: `MarketDataContext.tsx` (usado pelo site todo pra
+Dashboard/ticker, confirmando a suspeita do Cleber) tinha 4 símbolos com
+alias de EXIBIÇÃO nunca traduzido pro nome real da corretora — GOLD/OIL/NQ/
+DJI iam pro broker sem tradução e voltavam HTTP 404 sempre (100% das vezes,
+confirmado nos logs, não é intermitência). Corrigido com
+`DISPLAY_TO_BROKER_SYMBOL` (GOLD→XAUUSD, OIL→UKOUSD, NQ→NAS100, DJI→US30,
+todos confirmados reais ao vivo nos logs) traduzindo só na entrada da
+chamada ao broker, sem mudar as chaves que a UI já consome via `getPrice()`.
+`tsc --noEmit` sem erro novo nos 3 arquivos. **Pendente**: commit + deploy
+(`supabase functions deploy server`) desta 2ª rodada, e confirmação visual
+do Cleber depois.
+
+**[EM ANDAMENTO 2026-09-04, noite] Monitoramento contínuo do LLM Brain +
+fix real de R:R + rate-limit da MetaAPI investigado a fundo + cesta de fim
+de semana (automação revertida) + abas no Navegador de Ativos.** Handoff
+completo:
+[SESSAO_2026-09-04_MONITORAMENTO_5MIN_FIX_RR_RATELIMIT_CESTA_ABAS.md](SESSAO_2026-09-04_MONITORAMENTO_5MIN_FIX_RR_RATELIMIT_CESTA_ABAS.md).
+Resumo do que muda pra próxima sessão: (1) **bug real corrigido e já
+aplicado** — alvo saía menor que o stop quando o ATR real caía pro fallback
+(commit `ef93ab898`), confirmado ao vivo (XETUSD SHORT R:R 2,35:1 pós-fix);
+(2) **rate-limit da MetaAPI** — pesquisa profunda confirmou que o teto de 5
+requisições concorrentes de dado histórico é fixo por conta (não muda com
+plano pago), causa raiz real era concorrência sem limite nas 3 rotas do
+backend, semáforo compartilhado já commitado e deployado (`8cc89f4e6`) —
+relatório completo em
+[RELATORIO_2026-09-04_INVESTIGACAO_RATE_LIMIT_METAAPI.md](RELATORIO_2026-09-04_INVESTIGACAO_RATE_LIMIT_METAAPI.md);
+(3) **cesta de ativos**: tentei automatizar a troca dia-útil/fim-de-semana
+por horário, Cleber corrigiu em tempo real — seleção de ativos é sempre
+decisão do usuário via Setup, nunca automática; revertido, `MT5_ASSET_BASKET`
+volta a ser array único. Mantida só a detecção de horário (`isWeekendMode`,
+sexta 18h→domingo 19h Brasília) como infraestrutura pura, sem decidir
+cesta — **pendente de commit** (`llm-active-brain/src/{agent,assetBasket,
+atr}.ts`, comando pronto no handoff); (4) Navegador de Ativos ganhou abas
+de categoria reais + carregamento priorizado (categoria ativa primeiro,
+resto em segundo plano) — commit `ce9dc3e75` já aplicado. **Pendente real
+mais importante**: "modo fim de semana" comportamental ainda não foi
+desenhado (só a detecção de horário existe) — Cleber disse "vamos
+desenhar" numa sessão futura, perguntar o que ele tem em mente antes de
+implementar qualquer coisa.
+
+**[EM ANDAMENTO 2026-09-05] LLM Brain — recalibração via llm-council após
+queda real de 80%→33% de acerto (02/09→04/09) + teto de frequência + fim
+de semana como contexto.** Dado real (SQL): no dia de 80% de acerto
+(02/09), saídas por stop (SL) eram net POSITIVAS (+$2,37 — trailing/
+breakeven protegendo lucro), mas depois de ~10 commits mudando stop/
+trailing/alvo no mesmo dia 04/09 (incl. corte de `MT5_STOP_ATR_MULTIPLIER`
+2.0x→1.3x→0.65x no mesmo dia), SL virou perda real (-$22,99 em 03/09,
+-$34,51 em 04/09). Conselho (llm-council, 5 conselheiros + revisão cruzada)
+convocado pra decidir o que fazer: consenso foi reverter o stop pro único
+valor com leitura estatística limpa (2.0x ATR, `config.ts`), manter
+intocado o gate de R:R incondicional (bugfix real, não parâmetro de
+tuning), e congelar mecânica de stop/trailing/alvo por 5 dias úteis /
+mínimo 40 trades fechados antes de qualquer novo ajuste — recomendação já
+dada uma vez antes (mesmo llm-council, 04/09) e ignorada no mesmo dia,
+por isso agora registrada aqui como regra, não só conselho verbal. Também
+implementado nesta sessão (pedido direto do Cleber, fora do escopo do
+conselho): (1) teto DURO de 16 entradas novas por janela deslizante de
+24h (`mt5MaxEntriesPer24h`, `config.ts`+`tools.ts`+`getEntriesCountLast24h`
+em `neuralBridge.ts`) — achado real do balanço de 8 dias: dias de PIOR PnL
+líquido tinham sistematicamente MAIS trades, sem a assertividade
+acompanhar; (2) `isWeekend` real (Sáb inteiro + Dom até 23:00 UTC + Sex
+após 22:00 UTC, mesma janela de `isForexMarketOpen`) adicionado a
+`MarketRegime` (`atr.ts`) e exposto como CONTEXTO pro LLM (princípio 1g em
+`agent.ts`) — fim de semana já restringia a cesta pra só cripto, mas o LLM
+não sabia que estava num regime de liquidez global mais baixa mesmo dentro
+de cripto; agora instruído a exigir confluência mais forte nessa janela.
+`tsc --noEmit` limpo (raiz + `llm-active-brain/`), `npm run validate`
+37/37. **Não mexido de propósito** (recomendação do conselho): trailing em
+estágio, realização parcial em 1R, `targetPoints` do Setup (feature
+intencional, mantida em MÉDIO). **Pendente**: rodar 5 dias/40+ trades sob
+esta configuração ANTES de qualquer novo ajuste de mecânica — não repetir
+o padrão de 04/09.
+
+**[EM ANDAMENTO 2026-09-04] LLM Brain — 2 causas reais de R:R ruim
+corrigidas + balanço de 8 dias + conselho sobre frequência.** (1)
+`targetPoints="POUCOS"` no Setup sobrepondo o R:R do código (colapsava pra
+1,5:1); corrigido pra "MÉDIO" (R:R 3:1) via SQL direto, stop intocado
+(pedido do Cleber). (2) **Bug real de código, achado depois via print do
+Cleber**: um trade real (SPX500 LONG) abriu com R:R 0,32:1 (stop 23,18pts,
+alvo só 7,33pts) mesmo DEPOIS do fix acima — o gate de R:R mínimo
+(`mt5MinRrAfterSrCap`) só rodava dentro do bloco condicional do cap de
+suporte/resistência; quando o alvo nascia pequeno por outro motivo (ATR de
+referência pequeno + stop alargado pela margem de segurança de spread, sem
+o alvo acompanhar), nada bloqueava. Corrigido com checagem final
+incondicional em `open_position` (`tools.ts`) — `tsc --noEmit` limpo,
+processo reiniciado (watchdog religou sozinho), commit pendente (comando
+pronto no handoff). Balanço real de 8 dias (420 trades, -$363,81 líquido,
+payoff invertido na maioria dos dias, os 2 piores dias em PnL foram os de
+MAIOR frequência) + conselho (llm-council) sobre "operar mais": consenso
+foi não mexer em mais nada agora, deixar R:R 3:1 rodar 3-5 dias sozinho
+antes de reavaliar. Achado real não corrigido: `increase_position`
+(pyramiding, criado 02/09 p/ "ganhar muito quando ganha") nunca disparou em
+5 dias — investigar gate de condições numa próxima sessão. "IA não abre
+posição" reportado no meio da sessão era falso alarme (rate-limit
+transitório ~90s da MetaAPI no lote de 4 símbolos, autorresolvido,
+confirmado testando os endpoints direto). Handoff completo:
+[SESSAO_2026-09-04_ALVO_CURTO_TARGETPOINTS_OVERRIDE_E_CONSELHO_LLM.md](SESSAO_2026-09-04_ALVO_CURTO_TARGETPOINTS_OVERRIDE_E_CONSELHO_LLM.md).
+
+**[RESOLVIDO 2026-09-03, noite] Gráfico "desenquadrava" do lado direito ao
+restaurar da tela cheia (macOS) — o resize forçado só esperava 2
+`requestAnimationFrame` (~32ms), insuficiente pra animação de fullscreen do
+macOS/Chrome (várias centenas de ms).** Cleber reportou via print: depois de
+maximizar e voltar, o canvas de candles ficava desalinhado/cortado à
+direita, com espaço vazio sobrando (overlay de linhas de posição, que é
+CSS/absoluto, continuava correto — só o canvas interno da klinecharts
+media o container ainda no tamanho antigo do fullscreen). Corrigido em
+`ChartView.tsx` (`forceLayoutResettleAfterFullscreenChange`, ~linha 1560):
+mantido o resize duplo-rAF existente + reforço com 2 resizes atrasados
+(350ms/700ms) cobrindo a duração real da animação do SO. `tsc --noEmit`:
+634 erros antes e depois (mesmo ruído pré-existente), nenhum novo. Commit
+pronto, não aplicado ainda.
+
+**[RESOLVIDO 2026-09-03, fim de tarde] Gráfico do NAS100 "congelava"
+(cronômetro preso em 00:00, candles não formavam) + achado estrutural mais
+grave: tela de erro/loading escondia um gráfico que JÁ estava carregado em
+QUALQUER falha transitória seguinte — Cleber: "isso não pode ficar desse
+jeito, o usuário não pode passar por isso".** 3 causas em camada: (1)
+hipótese de múltiplas abas descartada pelo Cleber (nenhuma aba aberta) --
+fix defensivo (`document.hidden`) deixado pronto mas **não commitado**;
+(2) causa real confirmada no log: o próprio motor `llm-active-brain`
+(headless) se auto-saturava na cota MetaAPI compartilhada só no NAS100
+(único símbolo com posição aberta) -- watchdog de stop (5s) com cache
+curto (8s) + até 3 retries virava rajada sob rate-limit sustentado;
+corrigido (cache 8s→12s, watchdog sem retry-cascata em
+`mt5Broker.ts`/`index.ts`), processo reiniciado; (3) o feed de TICK do
+NAS100 ficou travado de verdade no broker por 12+min (confirmado via curl
+direto), fora do nosso controle -- mas os CANDLES continuaram respondendo
+normal o tempo todo. O achado estrutural: `ChartView.tsx` cobria o
+gráfico inteiro com tela preta bloqueante em qualquer falha de refresh,
+mesmo com gráfico já carregado -- corrigido com `hasEverRenderedCandlesRef`:
+bloqueio total só na primeira carga de verdade, falha depois disso vira
+badge pequeno não-bloqueante. `tsc --noEmit` limpo nos dois lados. Commit
+`0636353a2`, já aplicado pelo Cleber. Handoff completo:
+[SESSAO_2026-09-03_GRAFICO_TRAVADO_NAS100_WATCHDOG_RATE_LIMIT.md](SESSAO_2026-09-03_GRAFICO_TRAVADO_NAS100_WATCHDOG_RATE_LIMIT.md).
+
+**[RESOLVIDO 2026-09-03, noite] Stop-loss do LLM Brain podia deixar de
+fechar um pavio de candle que furava e voltava rápido — checagem mecânica
+rodava só 1x por CICLO INTEIRO do LLM (minutos, dado o Ollama local),
+não continuamente. Corrigido com watchdog independente de 5s.** Cleber
+reportou ao vivo, olhando o gráfico: candle claramente encostando no nível
+de stop de BTCUSD sem a posição fechar. Auditoria no banco confirmou que o
+preço nunca foi REGISTRADO abaixo do stop nos pontos checados (não é
+"trigger não disparou apesar da condição bater") — o problema real é a
+frequência: `enforceMt5StopsAndTargets` (`neuralBridge.ts`) só rodava no
+início de cada ciclo do LLM (`agent.ts`), e um ciclo inclui várias chamadas
+de ferramenta + raciocínio do modelo local, podendo levar minutos; um pavio
+mais curto que essa janela nunca era visto. Corrigido em `index.ts` com um
+watchdog independente, a cada 5s, desacoplado do raciocínio do LLM — fecha
+a posição no instante em que o preço real cruzar o nível, não quando o LLM
+"terminar de pensar". `tsc --noEmit` limpo. **Limite conhecido, não
+resolvido nesta sessão**: a checagem ainda usa 1 tick pontual (cache de 8s
+em `mt5Broker.ts`), não o high/low real do candle — pior caso de latência
+de detecção ainda é ~5-13s, não instantâneo. Commit `d3cc03c8a`, já
+pushado pro `origin/dev` (Cleber confirmou rodar `./restart.sh` pra
+carregar).
+
+**[RESOLVIDO 2026-09-03, noite] Motor ficava mudo em dia de alta forte
+generalizada mesmo identificando reversões técnicas reais — "Fluxo de
+Operação: A Favor (Trend)" travava TODOS os SHORTs, gate de R:R pós-S/R
+travava os LONGs restantes (preço colado na resistência depois de subir).**
+Cleber estranhou (mercado agitado, muitos ativos subindo acima da média, só
+1 posição aberta). Log confirmou: `open_position` de SHORT em
+XAUUSD/NAS100/SPX500/GER40/XETUSD recusado repetidas vezes com "SHORT aqui
+seria contra a tendência, bloqueado" (`marketMode="TREND"` em
+`ai_user_config`), apesar da IA ter identificado confluência técnica real
+(Estocástico extremo, MACD divergente, padrões de exaustão) em vários
+desses ativos. Ação tomada: `UPDATE` direto no Supabase removendo
+`marketMode` do config do Cleber (volta a `null`/AUTO) — trava de qualidade
+existente (volume/estocástico extremo) continua ativa, só parou de
+bloquear contrarian de cara. Mudança de config via SQL, não código — não
+precisou de commit/deploy/restart (cache de config expira em 60s).
+
+**[RESOLVIDO 2026-09-03] Card "Curva de Equity" do Dashboard parecia mostrar
+perda (linha caindo, vermelha) mesmo com o dia positivo — commit pronto, não
+aplicado ainda.** Causa raiz: nunca foi uma curva do dia, era uma janela
+rolante de só ~30min de amostragem (`useApexLogic.ts`); um recuo recente
+dentro desses 30min pintava tudo de vermelho mesmo com "Lucro AI Trader" (o
+card ao lado, resultado do DIA inteiro) positivo. Corrigido em 2 pontos:
+janela ampliada pra ~24h; cor do `MiniEquityChart` passa a comparar contra o
+mesmo saldo inicial usado por "Lucro AI Trader" (`referenceEquity`), não
+mais só o 1º ponto da janela curta. `tsc --noEmit`: 571→572, diferença é 1
+linha repetindo gap de tipagem pré-existente (`AIConfig.initialBalance`),
+sem erro novo de fato. **Pendente de confirmar ao vivo**: Cleber reportou a
+curva aparecendo "numa reta só" logo após o fix — 2 explicações levantadas,
+nenhuma investigada a fundo ainda: (1) real, sem posição aberta no momento
+`equity = balance` sem PnL flutuante variando, reta é o dado real; (2)
+`equityHistory` não sobrevive a reload (snapshot no Supabase morto desde
+que o `ai-runner` foi desligado, ver item de saldo travado acima) — série
+reinicia quase vazia a cada F5, ainda sem tempo suficiente acumulado pra
+mostrar variação mesmo numa janela de 24h. Se a reta persistir COM posição
+aberta e PnL variando no card ao lado, aí é bug de verdade, precisa
+investigar o loop de amostragem (`useApexLogic.ts`, `EQUITY_SAMPLE_INTERVAL_MS`).
+
+**[RESOLVIDO 2026-09-03] Motor mudo o dia inteiro em dia de alta forte —
+`dailyLossLimit` resetava em meia-noite UTC (21h de Brasília), não no dia
+local, fazendo perda de "ontem à noite" travar o dia inteiro seguinte;
+corrigido pra fuso de Brasília + teto subido 5%→15% (Supabase).**
+02/09 fechou com 80% de acerto e +$7,01 líquido (15 trades), mas perdas
+concentradas grandes (-$5,52/-$2,56/-$5,62) — objetivo declarado do
+Cleber pra próxima fase: manter ≥75% de acerto, reduzir tamanho da perda
+quando perde. Handoff completo:
+[SESSAO_2026-09-03_FUSO_LIMITE_DIARIO_E_TETO_15PCT.md](SESSAO_2026-09-03_FUSO_LIMITE_DIARIO_E_TETO_15PCT.md).
+
+**[RESOLVIDO 2026-09-03] Dashboard preso em $100 mesmo com a aba aberta a
+noite inteira — 3 bugs reais em cadeia no recálculo de saldo de
+`useApexLogic.ts`, todos corrigidos e confirmados ao vivo pelo console do
+Cleber.** Causa raiz real (diferente da hipótese inicial de "sem aba
+aberta"): (1) `ai_portfolio_snapshots` não recebe nenhuma linha nova desde
+que o `ai-runner` foi desligado (2026-08-31) — o poll contínuo `reconcile()`
+lia só essa tabela morta e nunca atualizava balance de novo, com ou sem
+aba aberta; (2) o fix disso (`getSessionRealizedPnl` recalculando direto de
+`ai_trades`) tinha o mesmo bug clássico já catalogado no projeto — engolia
+erro de rede e devolvia PnL `0`, causando o saldo "alternar" entre $100 e o
+valor real a cada falha transitória de Supabase; (3) o mais sutil: mesmo
+com os dois fixes acima corretos (log confirmava "$103.21 recalculado"), um
+bloco de fallback LEGADO logo abaixo no mount rodava em seguida e
+sobrescrevia balance/equity de volta pro `initial_balance` cru sempre que
+não havia snapshot — que é sempre o caso aqui. Removido. Saldo real da
+sessão `1d73c50a...`: $103,21 (23 trades, +$3,21 líquido). Também explicado
+de carona por que a IA não abriu posição na madrugada: 1 trade (XETUSD
+SHORT, -$5,62) sozinho consumiu o `dailyLossLimit` de 5% — bloqueio correto,
+não bug, mas achado de dimensionamento (1 trade ruim pode zerar o dia)
+pendente de decisão do Cleber. Pyramiding (`increase_position`) confirmado
+100% commitado/pushado/migrado — só falta `./restart.sh`. Handoff completo:
+[SESSAO_2026-09-03_MONITORAMENTO_NOTURNO_DASHBOARD_SNAPSHOT_E_DAILYLOSSLIMIT.md](SESSAO_2026-09-03_MONITORAMENTO_NOTURNO_DASHBOARD_SNAPSHOT_E_DAILYLOSSLIMIT.md).
+
+**[RESOLVIDO 2026-09-02, noite] "Agente de risco interno" do LLM Brain —
+nova ferramenta `increase_position` (pyramiding em posição vencedora, stop
+travado em breakeven).** Perder pouco quando perde, ganhar muito quando
+ganha, sem segundo LLM (máquina não aguenta 2 Ollama locais concorrendo
+pelo slot). `increase_position` só executa com lucro real acima do spread
++ ≥1 fator técnico alinhado, bloqueia se Estocástico indicar exaustão no
+sentido do movimento, sizing capado ao lote original, máx. 2 reforços por
+posição. `tsc --noEmit`/`npm run validate` 37/37 limpos. Handoff completo:
+[SESSAO_2026-09-02_AGENTE_DE_RISCO_INTERNO_PYRAMIDING.md](SESSAO_2026-09-02_AGENTE_DE_RISCO_INTERNO_PYRAMIDING.md).
+
+**[EM ANDAMENTO 2026-09-02, noite] Monitoramento contínuo do LLM Brain: 2
+bugs reais corrigidos (commits prontos, não rodados) + causa raiz real do
+`dailyLossLimit` revertendo sozinho.** (1) Validador semântico de
+contradição estava em fail-open permanente — medido ao vivo: o Ollama
+local (`-np 1`, mesmo modelo/processo do ciclo principal) levou 73s pra
+responder um prompt de teste bem menor que o real, bem além de qualquer
+timeout razoável; desligado por default quando o modelo é o mesmo do
+cérebro principal (`reasoningValidator.ts`/`config.ts`), trava por
+palavra-chave continua ativa. (2) 2ª ocorrência confirmada de fechamento
+manual (`AI_SIGNAL`) executando com preço já pior que o `stop_loss`
+registrado (XETUSD: exit 2383,84 vs stop 2384,74) — causa: a checagem
+mecânica de stop só roda 1x no início do ciclo, mas o ciclo (várias
+chamadas de LLM local, lentas) pode durar bem mais que isso; `close_position`
+(`tools.ts`) agora rechecar a mesma trava mecânica (idempotente) antes de
+avaliar o fechamento discricionário. (3) Achado real, não corrigido (fora
+do motor): pedido pra subir `dailyLossLimit` 5%→10% reverteu sozinho em 71s
+— causa real encontrada em `useApexLogic.ts` (~linha 872): o app resalva
+`aiConfig` inteiro no Supabase a cada mudança de estado em QUALQUER aba
+aberta, então uma aba com o valor antigo em memória sobrescreve edição
+feita via SQL sem precisar nem reabrir a tela de Setup. Mitigação: fechar/
+recarregar todas as abas do app antes de editar essa tabela via SQL.
+Handoff completo:
+[SESSAO_2026-09-02_VALIDADOR_FAIL_OPEN_RECHECK_STOP_E_DAILYLOSSLIMIT.md](SESSAO_2026-09-02_VALIDADOR_FAIL_OPEN_RECHECK_STOP_E_DAILYLOSSLIMIT.md).
+
+**[RESOLVIDO 2026-09-02, noite] Motor LLM Brain ficava mudo (nunca abria
+posição) por estourar `max_tokens` no raciocínio do modelo local + migration
+pendente bloqueava toda gravação — cadeia toda funcionando de ponta a ponta
+pela 1ª vez hoje, 3 posições reais abertas.** Causa 1 (reproduzida fora de
+produção, não suposição): Qwen3.5 via Ollama gasta "thinking" nativo antes
+da tool-call; com `get_mt5_quote` mais pesado (regime/candlePatterns/MACD/
+Estocástico somados em sessões recentes), o raciocínio estourava o teto de
+1024 tokens de resposta ANTES de emitir a function-call —
+`finish_reason:"length"`, tool_calls vazio, mesmo com `tool_choice:
+"required"`. Fix: `max_tokens` 1024→2048 + `num_ctx` do modelo Ollama
+16384→24576 (commit `288e9d347`). Causa 2, achada logo depois (mais grave):
+a migration de regime de mercado da sessão anterior nunca tinha sido
+aplicada, mas o código que grava essas colunas já estava ao vivo desde
+ontem — toda entrada que passasse pelos gates ainda falhava ao gravar
+(`Could not find the 'session_at_entry' column`). Cleber rodou a migration;
+confirmado que resolveu. Também desta sessão: `dailyLossLimit` do Setup
+subido de 5%→15% (Supabase, sem código) pra não travar o dia inteiro numa
+única perda dado que `riskPerTrade` já é 5%; e fechamento manual da IA
+agora permitido antes do alvo quando o lucro já cobre o spread real
+(commit `cf20f1f5b`), sem afetar a trava original contra fechamento nervoso
+sem lucro real. 3 posições abertas ao fim (NAS100 SHORT, BTCUSD SHORT,
+XETUSD LONG) — nenhuma validação estatística ainda, precisa de amostra de
+dias com a cadeia toda destravada. Handoff completo:
+[SESSAO_2026-09-02_MOTOR_MUDO_MAX_TOKENS_MIGRATION_PENDENTE_E_ALAVANCAGEM.md](SESSAO_2026-09-02_MOTOR_MUDO_MAX_TOKENS_MIGRATION_PENDENTE_E_ALAVANCAGEM.md).
+
+**[EM ANDAMENTO 2026-09-02, tarde/noite] Login por biometria — bug real
+achado no primeiro teste ao vivo: migration `webauthn_challenges`/
+`webauthn_credentials` NUNCA tinha sido aplicada de verdade em produção
+(mesmo o handoff da noite anterior dizendo "já rodada pelo Cleber com
+sucesso"), causando "Desafio expirado ou inexistente" no cadastro.**
+Confirmado via `list_tables` do Supabase (projeto `wyvdsxtcmizettljxtbg`):
+as duas tabelas não existiam. `register-options` gravava o challenge sem
+checar erro do `insert` — falhava silenciosamente, devolvia as opções
+normais, o navegador chegava a pedir Face ID/Touch ID, e só na hora de
+verificar (`register-verify`) o erro aparecia, mascarado como "expirado".
+Corrigido: `insert` de challenge agora checa erro e devolve 500 explícito
+em vez de mascarar (commit pronto). SQL da migration entregue pro Cleber
+rodar no SQL Editor (ainda não confirmado se já rodou desta vez). De
+carona, mesmo teste também bateu no bug já catalogado de RP_ID preso ao
+alias errado — usar sempre a URL do alias `dev`
+(`neural-day-trader-v2-git-dev-cleber-coutos-projects.vercel.app`), nunca
+uma URL de deployment com hash. **Ainda não confirmado ao vivo depois do
+fix + migration aplicada.**
+
+**[RESOLVIDO 2026-09-02, noite] Login por biometria real implementado —
+WebAuthn/Passkeys (FIDO2), Face ID/Touch ID/Windows Hello do próprio
+dispositivo do usuário, chave privada nunca sai do dispositivo.** Pedido do
+Cleber por "segurança impecável" com digital — não existe forma segura de
+um servidor capturar digital diretamente, então foi implementado o padrão
+real usado por bancos e Big Tech: servidor só guarda chave pública e
+verifica assinatura. Migration nova (`webauthn_credentials`/
+`webauthn_challenges`), Edge Function `supabase/functions/webauthn/`
+(4 rotas: register-options/verify, authenticate-options/verify — login
+biométrico gera sessão Supabase real via `admin.generateLink` +
+`verifyOtp`, nunca expõe senha nem service-role key ao browser), UI de
+cadastro em Configurações → Geral (`PasskeySettings.tsx`) e botão "Entrar
+com biometria" no login (`AuthOverlay.tsx`). `tsc --noEmit` sem erro novo.
+**Todos os comandos (migration, secrets `WEBAUTHN_RP_ID`/
+`WEBAUTHN_RP_ORIGIN`, deploy da function, commit) já rodados pelo Cleber
+com sucesso.** Pendente: confirmação visual ao vivo do fluxo completo
+(cadastro→login) ainda não observada por ninguém; RP_ID preso ao domínio
+atual de preview de `dev`, precisa atualizar se o alias mudar ou quando
+produção sair de manutenção; biometria como segunda confirmação antes de
+ações sensíveis (abrir posição real) não foi implementada, fica pra
+decisão futura do Cleber. Handoff completo:
+[SESSAO_2026-09-02_LOGIN_BIOMETRIA_WEBAUTHN_PASSKEYS.md](SESSAO_2026-09-02_LOGIN_BIOMETRIA_WEBAUTHN_PASSKEYS.md).
+
+**[EM ANDAMENTO 2026-09-02, madrugada] Gráfico "dando refresh sozinho, na
+cara do usuário" persistia mesmo depois do fix de `updateData` incremental
+— 2ª causa real encontrada e corrigida (achado colateral do fix anterior,
+não testada ao vivo ainda).** Cleber reportou que o problema continuava
+depois do commit `a34f24a17` (candles incrementais). Investigação achou
+que `renderSrOverlays` (zonas de Suporte/Resistência) e o marcador de
+"Trading Signal" rodam a CADA `fetchData`, inclusive no auto-refresh de
+30s — não só na 1ª carga: `renderSrOverlays` sempre removia TODOS os
+overlays de S/R e recriava do zero (pisca visível das caixas/linhas a
+cada 30s mesmo quando as zonas eram exatamente as mesmas do ciclo
+anterior); o marcador ▲/▼ de sinal criava um overlay novo por ciclo sem
+nunca remover o anterior (achado colateral já catalogado no fix de ontem,
+agora corrigido). Fix: `renderSrOverlays` pula o redesenho quando a
+assinatura das zonas (ids) não mudou desde o último render;
+`signalOverlayIdRef` remove o marcador anterior antes de criar o novo.
+`tsc --noEmit`: 417 erros pré-existentes ("Stocks US/BR/EU/UK"), nenhum
+novo. **Não testado ao vivo** — dev server desta pasta ocupado por outra
+sessão. Commit pronto, aguardando Cleber rodar e confirmar visualmente.
+Detalhe completo:
+[SESSAO_2026-09-02_GRAFICO_REFRESH_VISIVEL_AUTO_UPDATE.md](SESSAO_2026-09-02_GRAFICO_REFRESH_VISIVEL_AUTO_UPDATE.md).
+
+**[EM ANDAMENTO 2026-09-02, tarde] Motor não abria posição desde ~11h38 —
+gate de R:R pós-SR-cap provável causa raiz (paliativo aplicado), regime de
+mercado (sessão/volume/volatilidade real) e Estocástico extremo como
+gatilho de reversão adicionados como CONTEXTO pro LLM, não trava nova.**
+Cleber reportou motor sem abrir posição desde meio-dia (não acontecia de
+manhã) — correlação temporal forte com o commit `634e88f18` (alvo capado
+por S/R real), que recusa entrada quando o espaço não cobre R:R 1:1 em
+mercado lateral (paliativo: `MT5_MIN_RR_AFTER_SR_CAP` 1.0→0.6 no `.env`,
+não commitável). Decisão de produto do Cleber: baixo volume/volatilidade
+não deve ser tratado como "não operar" — pode ser tendência limpa e fácil
+de ler; `getMarketRegime` novo (`atr.ts`) expõe isso em `get_mt5_quote`,
+novo princípio 1g no prompt ensina o LLM a julgar (commitado, ao vivo).
+Também: Estocástico em extremo (SOBRECOMPRADO/SOBREVENDIDO) agora conta
+como confirmação válida pra entrada contra a tendência, ao lado do volume
+elevado — antes era ignorado (achado do Cleber: BTCUSD/XETUSD/GER40 com
+Estocástico 91-96 e volume normal ficariam bloqueados de reversão mesmo
+com exaustão real). Código pronto/staged, **commit entregue mas ainda não
+rodado pelo Cleber**. Migration SQL de `session_at_entry`/
+`volume_label_at_entry`/`volatility_label_at_entry` em `ai_trades` pronta,
+não aplicada. Nenhuma das mudanças tem validação estatística ainda — são
+correção de mecânica/contexto de decisão, precisa de amostra de dias
+rodando antes de julgar efeito no líquido. Handoff completo:
+[SESSAO_2026-09-02_MOTOR_NAO_ABRIA_POSICAO_GATE_SR_E_REGIME_DE_MERCADO.md](SESSAO_2026-09-02_MOTOR_NAO_ABRIA_POSICAO_GATE_SR_E_REGIME_DE_MERCADO.md).
+
+**[RESOLVIDO 2026-09-02, noite] Gráfico ficava completamente mudo (sem
+candle, sem spinner, sem mensagem de erro) em timeout de MetaAPI — causa
+raiz era o overlay de loading/erro (fix de mais cedo no mesmo dia) estar
+dentro da div que a klinecharts manipula direto no DOM, nunca chegava a
+aparecer de verdade.** Cleber mandou vídeo mostrando o gráfico com preço
+no header atualizando normalmente mas nenhum candle desenhado, tela muda
+o tempo todo. Reproduzido ao vivo no dev server (não era URL de deploy
+congelada — confirmado com Cleber que era o alias `dev` certo mesmo).
+Log do console mostrou a causa real: `MarketService` dando
+`TimeoutError: signal timed out` ao buscar histórico de candles via
+MetaAPI pra SPX500/EURUSD (mesma disputa de rate-limit da conta
+compartilhada já documentada), e o retry com backoff (2s/4s/8s) + spinner
+"Carregando candles..." + erro "Tentar de novo" (commit `c0d1b0a00`,
+mesmo dia) estava disparando certinho segundo o estado React — mas o
+elemento nunca existia de verdade no DOM (confirmado com
+`MutationObserver` ao vivo). Causa: o bloco condicional do spinner/erro
+foi escrito como filho direto de `<div ref={chartContainerRef}>`, a
+mesma div que a klinecharts manipula por fora do React — o próprio
+arquivo já tinha um comentário avisando desse padrão exato pros chips de
+indicador (gera `NotFoundError: insertBefore... not a child of this
+node`), só que o spinner/erro de candles foi escrito lá dentro mesmo
+assim. Corrigido movendo o bloco pra fora, como irmão da div (mesmo
+padrão já usado pros chips). `tsc --noEmit`: 417 erros, todos
+pré-existentes ("Stocks US/BR/EU/UK"), nenhum novo. Testado ao vivo — o
+spinner agora aparece de verdade durante o timeout. **Isto NÃO corrige o
+timeout do MetaAPI em si** (rate-limit crônico da conta compartilhada,
+mitigação de cesta 16→10 ativos de mais cedo no dia — efeito ainda não
+confirmado por amostra) — só faz o usuário parar de ficar às cegas
+enquanto isso acontece. Commit pronto, aguardando Cleber rodar.
+
+**[RESOLVIDO 2026-09-02] Guias de Stop/Alvo no Gráfico mostravam "pts"
+errado pra forex (0.01 pts pra 100 pips de EURUSD) — commit pronto, não
+aplicado ainda.** Cleber notou no ticket de EURUSD que Stop e Alvo
+mostravam a mesma distância "0.01 pts" — era a diferença bruta de preço
+(`Math.abs(entry-sl)`), sem converter pro pip real do ativo. Corrigido em
+`ChartView.tsx` (~linha 4879): `riskPts`/`rewardPts` agora dividem a
+diferença de preço pelo `pointSize` real (`contractSpecs.ts`:
+`tickSize * pointValue/tickValue`) — EURUSD passa a mostrar 100 pts
+corretos; índices/cripto/metais não mudam (`pointSize=1` pra eles, já
+era o comportamento certo). Cálculo de `$` (riskUsd/rewardUsd) e R:R
+continuam usando a diferença de preço crua, intocados. `tsc --noEmit`
+sem erro novo (mesmo ruído pré-existente de "Stocks US/BR/EU/UK").
+
+**[EM ANDAMENTO 2026-09-02] LLM Brain: trailing/breakeven soltados (saíam
+com centavos antes do alvo) + alvo por ATR agora capado por suporte/
+resistência real (todos os ativos) + achado grave não corrigido: Dashboard
+não reflete saldo real de sessão headless.** Cleber reportou sessão desde
+01/09 empatando ("o que ganha acaba perdendo", captura pouco por trade).
+Achado real via SQL direto (15 trades, sessão `1d73c50a...`): +$11,99
+líquido, 80% de acerto aparente, mas só 1/15 bateu o alvo de verdade — o
+resto era trailing (0,25R breakeven / 0,8x ATR) protegendo lucro cedo
+demais. Soltado pra 0,5R/1,6x ATR (`.env`, sem validação estatística
+ainda). Achado mais importante, veio de observação correta do Cleber: o
+alvo por ATR (4x ATR) é cego à estrutura real do preço — o EURUSD aberto
+pedia 0,71% de movimento com a resistência real a só 0,08% de distância.
+Corrigido em `open_position` (`llm-active-brain/tools.ts`/`config.ts`):
+alvo agora capado pelo suporte/resistência real (candle oficial) na
+direção do trade, pra toda a cesta — encolhe o alvo quando o nível está
+mais perto, recusa a entrada se nem isso cobrir R:R 1:1. `tsc --noEmit`
+limpo, já commitado. **Achado colateral grave, NÃO corrigido**: Dashboard
+mostrando saldo travado em $100 não era reset — `ai_portfolio_snapshots`
+só é gravado pelo NAVEGADOR (`useApexLogic.ts`), nunca pelo motor headless
+(`neuralBridge.ts`); sessão sem aba aberta nunca grava snapshot, Dashboard
+fica preso no valor inicial hardcoded. Pendente: motor gravar snapshot
+próprio, ou Dashboard cair pra fallback calculando direto de `ai_trades`.
+Também pendente: aumentar captura por trade via TAMANHO de posição
+(contratos/risco%), alavanca diferente do alvo — número fica pro Cleber
+decidir. Handoff completo:
+[SESSAO_2026-09-02_TRAILING_APERTADO_SALDO_TRAVADO_E_ALVO_CAPADO_POR_SR.md](SESSAO_2026-09-02_TRAILING_APERTADO_SALDO_TRAVADO_E_ALVO_CAPADO_POR_SR.md).
+
+**[RESOLVIDO 2026-09-02] Gráfico ficava em branco (sem candles, sem
+nenhum aviso) ao clicar numa posição aberta no Dashboard e entrar no
+Gráfico — commit pronto, não aplicado ainda.** Cleber reportou tela
+vazia (só o painel de compra/venda aparecia) e, à parte, "gráfico
+demorando demais para entrar". Testado ao vivo contra
+`/mt5-candles-history` pra EURUSD/1H: endpoint respondendo normal, dado
+real — não era symbol/backend quebrado, era falha transitória (rate-limit
+da conta MetaAPI compartilhada, risco já documentado abaixo) sem nenhuma
+recuperação visível: `dataSource` era setado em `ChartView.tsx` mas nunca
+lido em lugar nenhum da UI — se a 1ª busca de candles falhasse, o canvas
+ficava mudo pra sempre, só o auto-refresh silencioso de 30s podia (talvez)
+recuperar. Corrigido: retry com backoff 2s/4s/8s dentro do próprio fetch
++ spinner "Carregando candles de {símbolo}..." + mensagem de erro com
+botão "Tentar de novo" quando falha de vez — nunca mais um branco mudo,
+nem dado fabricado (se não há candle real, o app diz isso explicitamente).
+`tsc --noEmit`: mesma contagem de erros pré-existentes (417, todos tipo
+`"Stocks US"/"Stocks BR"`, não relacionados). `npm run validate`: 37/37.
+
+**[RESOLVIDO 2026-09-01, noite] Log de operações num fuso errado (parecia
+incompleto) + linha de posição sumindo do gráfico — 2 bugs reais, ambos
+corrigidos.** Cleber alarmado ("vou sofrer auditoria de investidores"): 4
+posições reais abertas no Dashboard, log só mostrava 2 no dia. Confirmado no
+Supabase que as 4 estavam lá, dado íntegro — causa era `OperationLogs.tsx`
+agrupando por dia em UTC (Brasil é UTC-3, posições da noite caíam num grupo
+de data diferente, colapsado). Fix: agrupamento/exibição em
+`America/Sao_Paulo`, chave e rótulo sempre no mesmo fuso entre si (commit
+`94a69e781`, já aplicado). Segundo achado, mais grave: linha de entrada/SL/
+alvo não aparecia pra posição real aberta — causa raiz era o fix anterior
+do dia (`6a5dfd3c9`, restauração de sessão) ter zerado só
+`anchorTimestamp`/`anchorX` na restauração de scroll, esquecendo que
+`offsetRightDistance` também recalcula posição internamente — sessão salva
+de um momento no passado reintroduzia o scroll antigo por essa segunda
+porta, empurrando o preço real da posição pra fora da escala visível.
+Corrigido zerando `offsetRightDistance` também (`ChartView.tsx:5967`),
+confirmado ao vivo (linha de entrada/alvo voltou a aparecer com números
+batendo com `ai_trades`). Commit pronto, não aplicado ainda. Achado
+colateral não investigado a fundo: eixo de data mostrou "08-11" uma vez
+mesmo pós-fix, pode ser resquício de sessão salva antiga ou bug residual —
+reobservar se voltar a acontecer. Handoff completo:
+[SESSAO_2026-09-01_LOG_FUSO_HORARIO_E_LINHA_DE_POSICAO_SUMINDO.md](SESSAO_2026-09-01_LOG_FUSO_HORARIO_E_LINHA_DE_POSICAO_SUMINDO.md).
+
+**[EM ANDAMENTO 2026-09-01] Motor parado desde 08-31 (NVIDIA aposentou o
+modelo) — migrado pra Ollama LOCAL, achado grave de 13 processos zumbis
+corrigido, ainda sem posição aberta com o modelo novo.** NVIDIA aposentou
+`nemotron-3-nano-30b-a3b` (EOL confirmado via API, HTTP 410) — motor
+falhava todo ciclo desde ontem e se desligou sozinho ao bater
+`MAX_CYCLES`, ~16h sem ninguém notar. Testados e descartados: Groq (teto
+de 8.000 tokens/min pra conta inteira + cota diária curta demais pro modo
+contínuo), Cerebras (chave expirada), SambaNova (agora exige cartão),
+outros modelos NVIDIA (nenhum viável pra esta conta). Solução adotada:
+**Ollama rodando local** (mesma máquina do motor, sem cota) — achado
+crítico no caminho: Ollama trunca contexto em ~2048 tokens por padrão,
+SILENCIOSAMENTE, sem nunca usar um Modelfile customizado
+(`PARAMETER num_ctx 16384`) — nunca usar nome de modelo Ollama "cru" neste
+projeto. **Achado mais grave da sessão**: 13 processos zumbis do motor
+acumulados ao longo do dia porque todo `pkill -f "tsx src/index.ts"`
+usado (inclusive dentro do `watchdog.sh`) nunca batia no processo real —
+corrigido o padrão. `watchdog.sh` novo religa o processo sozinho em
+qualquer saída (o bug do "desligou sozinho" não pode se repetir sem
+ninguém notar). Teto de risco por trade subido de 3%→6%
+(`MT5_MAX_RISK_PCT_PER_TRADE`, pedido do Cleber) pra destravar
+BTCUSD/UKOUSD nesta conta pequena — matemática auditada, não era bug.
+Prompt do sistema compactado ~30% sem perder regra nenhuma. Rodando com
+Qwen3.5 4B (trocado do 8B por velocidade), cesta de 9 ativos. **Estado ao
+parar a sessão**: 7 ciclos completos, ZERO tentativas de `open_position` —
+pode ser seletividade correta (mercado com bastante ativo sobrecomprado) ou
+modelo 4B conservador demais, precisa de mais amostra. Handoff completo com
+todos os comandos e achados:
+[SESSAO_2026-09-01_NVIDIA_APOSENTADA_OLLAMA_LOCAL_E_ZUMBIS.md](SESSAO_2026-09-01_NVIDIA_APOSENTADA_OLLAMA_LOCAL_E_ZUMBIS.md).
+
+**[RESOLVIDO 2026-08-31, noite] Menu de configuração do desenho (Mover/
+Estilo/Travar/Apagar) ficava preso no gráfico em cima do painel de
+compra/venda, atrapalhando o trade.** 1º clique num desenho (inclusive o
+clique que TERMINA de desenhar a linha) já abria o menu, fixo no
+topo-centro, sem nenhum botão de fechar visível — só sumia apagando o
+desenho. Corrigido: 1º clique só seleciona + destaca levemente (linha
+~2px mais grossa); só um 2º clique no MESMO desenho já selecionado abre o
+menu, agora perto de onde foi clicado; botão X novo fecha sem
+desselecionar; clique em espaço vazio desseleciona de verdade. Vale para
+todas as ferramentas com esse fluxo (trendline, Fibonacci, formas,
+canais...). `tsc --noEmit` sem erro novo, testado ao vivo. Achado
+colateral catalogado, não corrigido (fora de escopo): painel de compra/
+venda (`z-[220]`) pode sobrepor e capturar clique destinado ao dropdown
+de sub-ferramentas (`z-[200]`) em tela estreita — aconteceu ao vivo
+durante o teste (venda DEMO acidental de 0,01 lote BTCUSD, fechada na
+hora, sem impacto real). Commit pronto, não aplicado. Handoff completo:
+[SESSAO_2026-08-31_MENU_DESENHO_PRESO_NO_GRAFICO.md](SESSAO_2026-08-31_MENU_DESENHO_PRESO_NO_GRAFICO.md).
+
+**[RESOLVIDO 2026-08-31, noite] Auditoria completa da toolbar de desenho do
+Gráfico (`DrawingToolbar.tsx`/`ChartView.tsx`) — 4 bugs reais corrigidos,
+testados ao vivo clicando item por item.** Cleber pediu pra verificar se
+todos os itens/subitens funcionavam de verdade. Corrigidos: modo Ponto do
+crosshair não mostrava nada (efeito estava desabilitado de propósito);
+desenhos do usuário (trendline/Fibonacci/formas/texto/emoji) sumiam pra
+sempre ao trocar timeframe/símbolo (sem snapshot/restauração — o mais
+grave dos quatro); marcador de emoji nascia no lugar errado (clique de
+escolher o emoji no picker completava o desenho, não o clique real no
+gráfico); Anotação de Texto era um `<div>` HTML solto em pixel de tela,
+virou overlay nativo ancorado a preço/tempo (edição real ao clicar de
+novo, sobrevive a zoom/pan/troca de timeframe). `tsc --noEmit` sem
+nenhum erro novo (mesma contagem exata antes/depois). Gap real e honesto,
+não corrigido (fora de escopo, decisão pendente do Cleber): ~18
+ferramentas de GANN/padrões harmônicos/Elliott/Ciclos mostram "em
+desenvolvimento" em vez de desenhar algo errado. Commit pronto, não
+aplicado ainda. Handoff completo:
+[SESSAO_2026-08-31_AUDITORIA_TOOLBAR_DESENHO_GRAFICO.md](SESSAO_2026-08-31_AUDITORIA_TOOLBAR_DESENHO_GRAFICO.md).
+
+**[RESOLVIDO 2026-08-31, noite] Cesta do Cérebro LLM Ativo ampliada de 9
+criptos pra 16 símbolos (forex/metal/energia/índices) — Cleber pediu que a
+IA respeitasse TODOS os ativos configurados no Setup, não só cripto.**
+Testados ao vivo contra `/mt5-prices` (mesmo pipeline do motor mecânico
+antigo): `EURUSD, XAUUSD, UKOUSD, GER40, SPX500, NAS100, UK100` entraram na
+cesta (`assetBasket.ts`); `COFUSD`/`COCUSD` devolveram HTTP 404 nesta
+corretora e ficaram de fora. `lotSize`/sizing de cada um usa o valor real
+de `assetDatabase.ts` (mesma fonte que corrigiu o bug de PnL 20x do NAS100
+em 27/08), não suposição. Com a config atual do Cleber, a cesta efetiva
+foi de 1 ativo (só BTCUSD) pra 9. Achado de risco real (não bug) no
+monitoramento pós-deploy: BTCUSD a ~$79.000 tem lote mínimo que já força
+~$3,95 de risco, acima do teto de 3% de uma conta de $100 — fica
+efetivamente inoperável nesse tamanho de conta até o Cleber decidir
+aumentar capital/relaxar risco. `SOLUSD` continua fora por decisão de
+sessões anteriores (causou a maioria do prejuízo líquido 2x). Achado de
+processo à parte: outra sessão do Claude Code estava rodando em paralelo
+na mesma pasta de novo (mesmo risco já documentado abaixo) — mesclou sem
+conflito desta vez. Commit: `e825b2c2e`. Handoff completo:
+[SESSAO_2026-08-31_CESTA_AMPLIADA_MULTI_ATIVO_LLM_BRAIN.md](SESSAO_2026-08-31_CESTA_AMPLIADA_MULTI_ATIVO_LLM_BRAIN.md),
+próximos passos em [NEXT_SESSION.md](NEXT_SESSION.md).
+
+**[RESOLVIDO 2026-08-31, noite] Cleber ligou a IA pelo painel normal e ela
+não entrou em nenhuma operação — causa raiz: cesta de ativos poluída em
+`ai_user_config` travava o motor em confusão, + sessão órfã mascarando o
+Dashboard.** `ai_user_config` é a MESMA tabela lida pelo Setup do AI Trader
+(motor mecânico, seletor `AssetUniverse.tsx` oferece o catálogo Infinox
+inteiro) e pelo `getUserTradingConfig` do LLM Brain
+(`neuralBridge.ts:377`) — uma interação anterior com o seletor "Cesta de
+Ativos" tinha gravado os 12 ativos do motor mecânico (EURUSD, XAUUSD,
+GER40...), cuja interseção com a cesta real do LLM Brain (9 criptos MT5)
+era só BTCUSD. Confirmado ao vivo no log: 8/9 símbolos retornavam "fora da
+cesta permitida" todo ciclo, agente ficava chamando `stop()` interno
+confuso em vez de operar. De carona: "Ligar IA" também criou uma sessão
+órfã `strategy_name='Apex AI'` (motor mecânico, cron `ai-runner-tick`
+desligado definitivamente) que `getActiveSession()` mostrava em vez da
+sessão real do LLM Brain, por pegar só a mais recente por data sem filtrar
+motor — corrigido priorizando `LLM_ACTIVE_BRAIN_MT5` explicitamente
+(`AITradingPersistenceService.ts:434`, commit `9bcb5e16b`, já no
+`origin/dev`). Achado extra de risco, sem relação com a causa raiz: 1
+posição BTCUSD LONG real ficou órfã numa troca de sessão (sessão virou
+COMPLETED sem fechá-la, fechamento em lote seguinte não pegou por 10s de
+diferença) — fechada a preço real da Binance, `-$0,84`. **Pendente**:
+seletor "Cesta de Ativos" do Setup ainda oferece ativos que o LLM Brain
+não executa (só cripto MT5 tem efeito real hoje) — pode reproduzir o
+mesmo problema se mexido de novo sem essa ciência; decisão de como
+restringir fica pro Cleber. Handoff completo:
+[SESSAO_2026-08-31_CESTA_POLUIDA_LLM_BRAIN_E_SESSAO_ORFA.md](SESSAO_2026-08-31_CESTA_POLUIDA_LLM_BRAIN_E_SESSAO_ORFA.md).
+
+**[RESOLVIDO 2026-08-31, fim do dia] Setup do AI Trader (aba AVANÇADO) —
+TODOS os campos da tela original restaurados e reconectados de verdade ao
+LLM Brain (motor único).** Cleber reportou que boa parte do Setup
+"AVANÇADO" não era obedecida pela IA, e pediu a tela igual ao original
+("Pedi igual a isso! Tudo tem que funcionar + cadencia agressiva") — vários
+campos tinham sido removidos da UX num commit anterior do mesmo dia por
+"não ter equivalente no motor novo". Em vez de manter removidos, cada campo
+foi RECONECTADO com efeito real: **Timeframe Operacional** (1m/5m/15m/1H/4H)
+agora rege todos os indicadores derivados de candle (tendência/volume/S&R/
+MACD/estocástico/padrões) — antes fixo em 5m, `atr.ts`
+(`fetchRecentCandles`) ganhou parâmetro de timeframe threadado por 6
+funções + cache por símbolo+timeframe; **Estratégia** (dropdown de preset)
+vira diretiva de estilo injetada no prompt do LLM (`agent.ts`) — não é
+regra mecânica, o agente raciocina livre, sem motor de blocos equivalente;
+**Fluxo de Operação** (A Favor/Contra) — guard real em `open_position`
+(`tools.ts`); **Alvo de Lucro** (Poucos/Médio/Muitos) — sobrepõe o R:R
+real (take-profit/stop); **Lotes Máximos por Trade** e **Máximo de
+Posições Abertas** (agregado, diferente de Ativos Simultâneos que conta
+símbolos distintos) — tetos reais no sizing/abertura; **Capital para IA**
+voltou a ser editável (usado como teto do sizing quando menor que o saldo
+real); **Cadência de Entrada** (novo, CONSERVADORA/NORMAL/AGRESSIVA) —
+como o loop de ciclos é global (multi-tenant, serial), não pausa o
+processo: restringe só a AVALIAÇÃO DE ENTRADA NOVA a 1 a cada N ciclos
+(1/2/4), nunca o monitoramento de stop/breakeven/trailing de posições já
+abertas (roda todo ciclo, sempre). `npm run validate` 37/37, `tsc
+--noEmit` limpo nos dois lados (engine + frontend), testado ao vivo após
+restart — log confirma os 6 campos novos chegando via `getUserTradingConfig`
+(`neuralBridge.ts`). **Achado de processo, não de código**: parte das
+mudanças em `llm-active-brain/` acabou commitada/pushada sem revisão por
+causa de outra sessão do Claude Code rodando em paralelo na mesma pasta
+(commit `64397d751`, mensagem sobre outro fix não relacionado) — evitar
+sessões paralelas no mesmo working directory. Detalhe completo:
+[SESSAO_2026-08-31_SETUP_IA_CAPITAL_ATIVOS_CADENCIA.md](SESSAO_2026-08-31_SETUP_IA_CAPITAL_ATIVOS_CADENCIA.md).
+
+**[RESOLVIDO 2026-08-31, fim do dia] Linha de posição piscando no gráfico +
+gatilho de breakeven do LLM Brain nunca disparava — 2 achados, commitados
+(`3a0d9efd9`).** Cleber reportou linhas de entrada/stop/alvo "piscando" no
+gráfico e stop não acompanhando o preço a favor (posições do Cérebro LLM
+Ativo em modo DEMO). Achado 1 (bug real): a reconciliação de overlays em
+`ChartView.tsx` (fix de 2026-08-28/29 que eliminou o piscar de posição
+aberta) usava uma regex que não reconhecia o prefixo `pending_` das ordens
+pendentes — toda linha de ordem pendente era removida+recriada a cada tick
+de P&L (~1s), causando o piscar; corrigido (ids `pending_*` ignorados na
+checagem + bloco de criação tornado idempotente). Achado 2 (não é bug, é
+threshold): o breakeven+trailing do Cérebro LLM Ativo (`neuralBridge.ts`)
+roda de verdade a cada ciclo, mas nunca disparou em nenhum trade do log
+(`llm-brain.log`, zero ocorrências de "Stops trilhados"/"movidos para
+breakeven") — gatilho de 0,5R exigia mais lucro flutuante do que a
+excursão favorável mediana histórica (~$0,55) costuma entregar antes do
+trade reverter/bater stop/alvo. Baixado pra 0,25R via
+`llm-active-brain/.env` (`MT5_BREAKEVEN_TRIGGER_R`), a pedido do Cleber —
+sem validação estatística de melhora no líquido, é correção de mecânica de
+proteção. **Pendente**: observar próximos trades pra confirmar que o
+mecanismo passa a disparar de verdade com o threshold novo. Handoff
+completo:
+[SESSAO_2026-08-31_PISCAR_LINHA_E_BREAKEVEN_LLM_BRAIN.md](SESSAO_2026-08-31_PISCAR_LINHA_E_BREAKEVEN_LLM_BRAIN.md).
+
+**[RESOLVIDO 2026-08-31] Preço/variação de BTCUSD "errados" contra a
+Binance — 3 causas reais corrigidas, depois confirmado OK.** Cleber
+reportou repetidamente preço/% de BTCUSD divergindo da Binance (chegou a
+inverter sinal). Achados reais, em ordem: (1) referência de 24h em
+`/mt5-prices` usava vela de 1h, depois 5min, depois **1min ancorada no
+alvo** — reduz ruído de janela discreta; (2) causa raiz maior: BTCUSD
+sempre cotou pelo TICK do broker (Infinox/MetaAPI), nunca pela Binance —
+venues diferentes nunca são idênticos por definição; resolvido roteando
+BTCUSD **direto pra API pública da Binance** em `/mt5-prices`
+(`BINANCE_DIRECT_SYMBOL_MAP`), sem CORS (chamada servidor-servidor) —
+resolve a decisão de produto "roteamento de cripto" que estava pendente há
+dias, só pro BTCUSD; (3) polling do Gráfico pra BTCUSD reduzido de 2s pra
+1,5s (sem risco, não bate mais na conta MetaAPI compartilhada). Efeito
+colateral avisado: `/mt5-prices` é a mesma rota que o LLM Brain usa pra
+cotar BTCUSD — motor passa a decidir/calcular P&L de BTCUSD contra Binance,
+não broker (dado real, não fabricado). **Fechamento real**: depois do
+deploy, Cleber ainda via diferença — investigado com print lado a lado e
+achado que ele comparava com o par **BTC/BRL** da Binance (variação própria,
+embute câmbio USD/BRL, nunca bate com BTCUSD por definição), não BTC/USDT —
+confirmado que bate exatamente contra o par certo. Não é bug, resolvido.
+De carona, confirmado que `streaming-relay/` está DESLIGADO desde
+2026-07-23 (não tentar `fly deploy`, não existe app no Fly.io). Commits:
+`a885bc82f`, `34cae231c`, `b0ef7f2e8` (já commitados e deployados). Handoff
+completo:
+[SESSAO_2026-08-31_VARIACAO_PCT_CRIPTO_24H.md](SESSAO_2026-08-31_VARIACAO_PCT_CRIPTO_24H.md).
+
+**[RESOLVIDO 2026-08-31, fim do dia] Cérebro LLM Ativo é agora o motor único
+da plataforma, execução real (não só rótulo) — motor mecânico DESLIGADO
+DEFINITIVAMENTE.** Cron `ai-runner-tick` desativado no Supabase (decisão
+explícita e definitiva do Cleber). Sessões do LLM Brain agora nascem
+`status=RUNNING` (era `PAUSED`, hack só necessário enquanto o motor
+mecânico ainda rodava) — toda a UI existente (Dashboard/AI Trader/Gráfico/
+Header) passou a exibir o motor novo automaticamente via
+`getActiveSession()`, sem componente novo. Achado crítico corrigido: bug
+real em `restart.sh` causava múltiplos processos do LLM Brain em paralelo
+(PID errado sobrescrevia o lock). Setup do AI Trader reconectado de
+verdade (risco/trade, direção, cesta de ativos, limite de perda diária) —
+~18 campos sem equivalente no motor novo removidos da UX (decisão
+explícita do Cleber). Valor único de capital da plataforma: $100 (sessão
+de teste de $50 encerrada). ATR Trailing Stop do motor mecânico deletado
+(LLM Brain já tem o próprio). **Pendente**: commit (comando pronto),
+qualidade do modelo LLM (texto corrompido observado ao vivo, não é bug de
+código). Handoff completo:
+[SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_UNICO.md](SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_UNICO.md),
+próximos passos em [NEXT_SESSION.md](NEXT_SESSION.md). Levantamento
+original (Fase 1, contrato do motor mecânico, inventário de guardrails):
+[SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md](SESSAO_2026-08-31_RELIGAMENTO_LLM_BRAIN_MOTOR_PRINCIPAL.md).
+
+**2026-08-30 (noite, ~19h-01h UTC): monitoramento contínuo de 5 em 5 min do
+Cérebro LLM Ativo (sessão `aa279c75...`, ~66 checagens) — 1 bug real
+corrigido NO CÓDIGO, NÃO COMMITADO, NÃO APLICADO (processo não foi
+reiniciado).** Teto de exposição do grupo correlacionado (`$2.700`) estava
+furável por uma única entrada grande: a checagem só somava o que já estava
+aberto, nunca a entrada sendo aberta — confirmado ao vivo (SOLUSD SHORT
+"forte" levou exposição real a $3.012, 12% acima do teto, antes de qualquer
+bloqueio). Fix em `llm-active-brain/src/tools.ts` (segunda checagem após
+calcular `amountUsd` real da nova entrada), `tsc --noEmit` limpo. Sessão
+fechou com 32 trades, 6 vitórias (18,75%), -$56,46 líquido — amostra
+pequena, sem validade estatística. **Pendências reais**: (1) restart pra
+aplicar este fix + o fix de retry de conexão da sessão anterior (comando
+pronto no handoff); (2) commit do diff em `tools.ts`. Handoff completo,
+incluindo catálogo de achados de qualidade do modelo (validador em
+fail-open recorrente, "decisão narrada sem executar", tamanho "forte" em
+apostas de convicção fraca) e defesas confirmadas funcionando (trava de
+≥50% do caminho, cotação fresca, teto de 1 posição/símbolo, trailing
+stop):
+[SESSAO_2026-08-30_MONITORAMENTO_NOTURNO_TETO_GRUPO_E_ACHADOS.md](SESSAO_2026-08-30_MONITORAMENTO_NOTURNO_TETO_GRUPO_E_ACHADOS.md).
+
+**2026-08-30 (fim de tarde): monitoramento contínuo de 5 em 5 min do
+Cérebro LLM Ativo (sessão `aa279c75...`) — 3 bugs reais corrigidos,
+COMMITADOS E JÁ APLICADOS AO VIVO (processo reiniciado).** Achados via log
+ciclo a ciclo + Supabase, não suposição: (1) `reasoningValidator.ts` estava
+em fail-open sistemático — 100% das chamadas cortavam no meio do
+raciocínio do modelo (max_tokens=150 curto demais pra um modelo que pensa
+em texto livre antes do JSON), deixando passar reasoning autocontraditório
+de verdade (ex: abriu SHORT em BTCUSD com o próprio texto dizendo
+"confluência insuficiente para abrir SHORT aqui"); subido pra 600
+(`8d4ad62f8`). (2) Cooldown de perda em sequência (`mt5LossStreakThreshold=2`/
+`30min`) travava a cesta inteira por 30min de cada vez — afrouxado pra 3
+perdas/20min, a pedido do Cleber (`ef55e3516`). (3) **O mais importante**:
+trailing stop pós-breakeven usava a MESMA distância do stop de abertura
+(2,0x ATR), criando uma faixa morta onde o preço corria a favor sem o stop
+subir nada — confirmado no trade real que chegou a +$3 e fechou em -$0,19;
+multiplicador dedicado mais apertado (`mt5TrailAtrMultiplier=0,8x`) agora
+protege lucro progressivamente (`fd258d63b`). Processo reiniciado ao vivo
+a pedido explícito do Cleber ("reinicie você mesmo") — confirmado único
+(sem duplicata), sem perda de posição (XETUSD LONG que já estava aberta
+foi reconhecida corretamente pelo novo processo). **Nenhum dos 3 fixes
+promete edge** — são correção de mecânica (contradição bloqueada de
+verdade, cesta menos travada, lucro protegido de verdade), não alegação de
+melhora no líquido; precisa de amostra nova (dias, não horas) rodando com
+o código atualizado antes de avaliar efeito real. PnL da sessão no momento
+do restart: -$8,46, 21 trades, 3 vitórias (14,3%), amostra pequena sem
+validade estatística. Monitoramento desarmado a pedido do Cleber ao fim.
+Handoff completo:
+[SESSAO_2026-08-30_MONITORAMENTO_5MIN_VALIDADOR_COOLDOWN_TRAILING.md](SESSAO_2026-08-30_MONITORAMENTO_5MIN_VALIDADOR_COOLDOWN_TRAILING.md).
+
+**2026-08-30 (tarde/noite): monitoramento ao vivo do Cérebro LLM Ativo,
+sessão `aa279c75...` — validador semântico agora pega fato inventado (não
+só autocontradição), cesta expandida pra 10 ativos (+SOLUSD/ADAUSD/LNKUSD/
+UNIUSD), 10 padrões de candlestick implementados e atrelados ao Price
+Action existente, + 1 bug de alias de símbolo pego antes de causar dano
+(4 commits prontos, NENHUM aplicado ainda).** Achado real via log: BTCUSD
+SHORT perdeu $5,58 porque o reasoning afirmou "trend LOW, volume elevated"
+contradizendo o `get_mt5_quote` do MESMO ciclo (trend LATERAL, volume NÃO
+elevado) — fato inventado, não erro de leitura; `reasoningValidator.ts`
+agora recebe o snapshot real da cotação e bloqueia esse tipo específico de
+contradição. SOLUSD (removido antes por 57% do prejuízo de uma sessão,
+causa nunca comprovada) foi reintroduzido a pedido do Cleber — monitorar
+de perto. Padrões de candle (Doji/Martelo/Estrela Cadente/Engolfo/Harami/
+Estrela Manhã-Noite/Marubozu) calculados em cima do candle OHLC real,
+nunca mecânicos — mais um fator de confluência, testados ao vivo (DOJI/
+ENGOLFO_ALTA/ESTRELA_CADENTE/MARUBOZU_ALTA já detectados de verdade em
+produção). De carona: Cleber reportou "plataforma travada"/"P&L flutuante
+não funciona" — falso alarme (processo vivo, dashboard atualizando ao
+vivo, $0,00 era o valor correto por não ter posição aberta no momento),
+mas a investigação achou e corrigiu de verdade o mesmo bug de alias de
+símbolo já documentado pra BTCXBN/DOGUSD, agora pra LNKUSD (broker usa
+`LNKUSD`, catálogo unificado usa `LINKUSD`) em `LlmActiveBrainPanel.tsx`
+— pego ANTES de qualquer posição real abrir nesse símbolo. **Achado
+colateral não investigado**: painel mostra P&L Realizado (-$8,27) via
+campo `pnl` bruto, divergente do cálculo direto via `net_pnl` (-$15,20)
+no Supabase — não investigado qual é o número certo. Handoff completo:
+[SESSAO_2026-08-30_VALIDADOR_CESTA_EXPANDIDA_E_CANDLE_PATTERNS.md](SESSAO_2026-08-30_VALIDADOR_CESTA_EXPANDIDA_E_CANDLE_PATTERNS.md).
+
+**2026-08-30 (tarde): monitoramento ao vivo do Cérebro LLM Ativo — 6 bugs
+estruturais reais corrigidos + MACD/Estocástico Lento implementados
+(commits prontos, NENHUM aplicado ainda).** Rastreando o log ciclo a ciclo
+(não suposição), achados e corrigidos: stop podendo ficar menor que o
+spread (perda garantida, já commitado em `b94239f75`); `close_position` e
+depois `open_position` decidindo sem consultar cotação fresca do símbolo
+certo (um caso real: fechou um BTCUSD lucrativo citando dado do XETUSD);
+fechamento manual prematuro (posições fechadas perto do zero a zero cujo
+preço confirmadamente voltou a favor minutos depois — trava generalizada
+pra exigir ≥50% do caminho até stop/alvo antes de aceitar fechamento
+discricionário); guarda de contradição reforçada + validador semântico novo
+(`reasoningValidator.ts`, fail-open sempre). MACD e Estocástico Lento reais
+implementados por 2 subagentes em paralelo (revisados linha a linha antes
+de aplicar) — nunca fabricam indicador, só dado pro julgamento do LLM, sem
+trava mecânica nova. **Achado sem fix possível**: mesmo com dado real e
+fresco, a IA repetidamente leu o indicador de forma errada (MACD subindo
+interpretado como "esgotando", o oposto) — consistente com a pesquisa já
+documentada abaixo ("busca por edge de sinal técnico", sem resultado
+comprovado); os fixes desta sessão levantam o piso (evitam perda por erro
+estrutural), não prometem levantar o teto (acerto direcional). **Primeiro
+sinal (amostra de 1, não é prova) de que o fix funciona**: depois da trava
+de fechamento prematuro no ar, uma posição XETUSD LONG sobreviveu a 5-6
+tentativas de fechamento manual bloqueadas e bateu take-profit de verdade
+(+$13,41) — primeiro TP real confirmado da sessão. Sessão fechou (monitoramento
+desarmado a pedido do Cleber) em 17 trades, 2 vitórias, -$9,62 líquido,
+amostra mista (trades de antes e depois de cada fix, não comparável entre
+si). **Pendência real**: 6 commits prontos esperando Cleber rodar
+manualmente. Detalhe completo:
+[SESSAO_2026-08-30_MONITORAMENTO_LLM_BRAIN_TARDE_E_HARDENING.md](SESSAO_2026-08-30_MONITORAMENTO_LLM_BRAIN_TARDE_E_HARDENING.md).
+
+**2026-08-30: `/code-review ultra` no diff local (working tree) + 3 bugs reais
+corrigidos e commitados (`45d26c24b`).** Revisão multi-ângulo (xhigh effort,
+finders em agentes + verificação) sobre `OrderTicket.tsx`, `AITrader.tsx` e
+`discoverSignals.ts` (o diff não-commitado no momento da revisão) achou 5
+problemas, todos corrigidos no mesmo commit: (1) `discoverSignals.ts`
+montava o caminho de saída com `process.cwd()`, que quebra exatamente do
+jeito que o próprio cabeçalho do script manda rodar (cwd = pasta do
+experimento, não raiz do repo) — resultado seria gravado num caminho
+duplicado sem nenhum erro visível; corrigido com
+`fileURLToPath(import.meta.url)`, agora independente de cwd, e caminho
+extraído pra uma constante única (`RESULTS_DIR`, era repetido 4x); (2) o
+fix do bug de PnL 20x do NAS100 (27/08, `OrderTicket.tsx`) tinha introduzido
+uma regressão nova sem ninguém notar: a guarda `!asset` adicionada zerava a
+prévia de risco/retorno também em **LIVE**, que nunca precisou de `asset`
+(só de `contractSpec`, que sempre tem fallback) — símbolos que existem em
+`contractSpecs` mas não em `assetDatabase` (ex: BTCUSDT, caso já documentado
+no próprio arquivo) perdiam a prévia inteira; corrigido movendo a guarda pro
+branch DEMO só; (3-4) a fórmula de PnL de DEMO estava duplicada dentro do
+próprio `OrderTicket.tsx` (`riskUsd`/`rewardUsd`, cópia idêntica) — extraída
+pra `computePriceMagnitudePnl`, exportada de `useApexLogic.ts` como fonte
+única, ao lado de `calculateEngineConsistentPnL` (mesma disciplina, mesmo
+motivo: essa exata duplicação de fórmula foi a causa raiz do bug do NAS100
+original). `AITrader.tsx` (slider novo de `signalScoreFloor`, campo que já
+existia no motor desde antes) foi revisado e não tinha bug. `npx tsc
+--noEmit` limpo nos 3 arquivos tocados pelo fix, comportamento preservado
+exatamente (refactor + fix pontual, não mudança de resultado).
+
+**2026-08-30 (manhã): redesenho do Cérebro LLM Ativo depois do "desesperador"
+1,7% de acerto/-$124 da noite anterior — autonomia total dada pelo Cleber.**
+Diagnóstico via SQL direto (não suposição) achou 2 causas concretas, não
+"falta de edge" genérica: (1) SOLUSD sozinho respondeu por 57% de todo o
+prejuízo (13 trades, 0 vitórias, quase todos stopados em <1min, ambas
+direções — removido da cesta, pendente investigação de causa); (2) ZERO das
+66 posições bateram take-profit (alvo "giro rápido" de 2026-08-29 nunca era
+alcançável). Corrigido: R:R 1:2 (era ~1:1,13, mesmo R:R do motor mecânico
+principal), teto de 1 posição/símbolo (era 3) + guard novo contra posição
+OPOSTA simultânea no mesmo símbolo (confirmado que aconteceu de verdade),
+guard novo de contradição reasoning↔ação em `open_position`, `tool_choice:
+"auto"→"required"` (testado direto contra a API antes de aplicar — elimina
+as 3 variantes de falha de formato de tool-call da noite anterior,
+confirmado limpo ao vivo depois do restart). **Bug real encontrado E
+corrigido AO VIVO, no primeiro trade sob o R:R novo**: fallback de stop sem
+ATR real colapsava o alvo pra R:R 1:1 (ou pior) ignorando o multiplicador —
+sem dano (a IA fechou manualmente, -$0,24). **Depois do redesenho já
+validado ao vivo, Cleber pediu reset do dashboard pra $50 limpos** pra
+testar o modelo novo sem a bagagem da sessão antiga — sessão nova criada
+(`ai_sessions.id = aa279c75-1acd-49aa-9fef-a76e8ddf0b2e`, $50, zero
+trades), processo reiniciado uma 3ª vez pra migrar pra ela. As 2 posições
+que ficaram órfãs na sessão antiga (XETUSD SHORT e BTCXBN SHORT, essa
+última aberta no ÚLTIMO ciclo do processo antigo, minutos antes da
+migração) foram fechadas manualmente a preço real (rota `/mt5-prices`,
+nunca fabricado), `exit_reason='MANUAL'`, motivo registrado em
+`ai_reasoning` (nunca `UPDATE` silencioso) — -$0,41 e -$2,33
+respectivamente. **A amostra pra julgar o redesenho é a partir de agora,
+sessão `aa279c75...`** — a antiga (`e7eef768...`, -$135/1,7% de acerto)
+fica congelada como histórico do R:R velho, não comparável. **Sem promessa
+de edge** — pode só reduzir o ritmo da perda (bug fixes) sem criar lucro
+real; precisa de amostra nova antes de julgar (ver query pronta no
+handoff). Achado de metodologia à parte: restart **não** cria sessão nova
+sozinho no Supabase (reusa a mais recente por `strategy_name` — só criei
+uma nova explicitamente por pedido do Cleber) — corrige suposição errada
+do handoff anterior. Handoff completo, com o diagnóstico detalhado, lista
+de arquivos mudados e pendências:
+[SESSAO_2026-08-30_REDESENHO_CEREBRO_LLM_ATIVO.md](SESSAO_2026-08-30_REDESENHO_CEREBRO_LLM_ATIVO.md).
+
+**2026-08-30 (noite anterior): monitoramento contínuo do Cérebro LLM Ativo
+terminou em 1,7% de acerto, -$124 líquido — motivou o redesenho acima.** 2
+bugs de auditoria corrigidos e commitados (`75fffa6c4`, `8a3bcde6a`,
+`768720d5a`: cooldown ignorava fechamento manual negativo; `open_position`
+aceitava `reasoning` vazio). Achados de degradação do modelo sem fix de
+código possível (erro de leitura de percentual, alucinação de contagem,
+corrupção de texto) catalogados no handoff — a maior parte das falhas de
+formato de tool-call foi endereçada no redesenho acima via `tool_choice:
+"required"`. Detalhe completo:
+[SESSAO_2026-08-30_MONITORAMENTO_NOTURNO_LLM_BRAIN_E_ACHADOS_CRITICOS.md](SESSAO_2026-08-30_MONITORAMENTO_NOTURNO_LLM_BRAIN_E_ACHADOS_CRITICOS.md).
+
+**2026-08-30 (madrugada): sessão de manutenção do LLM Brain — 3 fixes implementados,
+TODOS commitados, código ao vivo. Nenhuma ação de código pendente.**
+Commits: `e043e0308` (remove XPTUSD da cesta, fica com 7 ativos — mercado
+de platina ficava fechado com tick morto ~30h todo fim de semana),
+`8236d5774` (reasoning apagado: `closeMt5Position`/`neuralBridge.ts`
+sobrescrevia `ai_reasoning` da entrada com o da saída — agora concatena
+`entrada || SAIDA: saida` — + `tradeMemory.ts` novo, injeta no `userMessage`
+de cada ciclo um resumo dos últimos ~30 trades fechados por símbolo+lado,
+cache 60s, teto 1600 caracteres — NÃO é ML/fine-tuning, é injeção de
+contexto factual, **efeito ainda não validado**, validar exigiria comparar
+taxa de reentrada em símbolo+lado perdedor com/sem o bloco ao longo de
+dias, amostra que não existe ainda), `81c995bf4` (feed travado + spread
+anormal: XPTUSD tinha tick de ~30h tratado como vivo, poluindo o histórico
+de tendência/volatilidade — corrigido com trava de cotação obsoleta
+>120s; DOTUSD com spread de ~10% é dado REAL da corretora fim de semana,
+não bug — trava de spread em 2,0% implementada em `mt5Broker.ts`/
+`tools.ts`; detalhe completo em
+[SESSAO_2026-08-30_FEED_TRAVADO_E_SPREAD_ANORMAL.md](SESSAO_2026-08-30_FEED_TRAVADO_E_SPREAD_ANORMAL.md)).
+Processo reiniciado depois de cada fix (procedimento padrão: matar o
+antigo, confirmar 1 só rodando, subir de novo — posições abertas nunca se
+perdem, continuam no Supabase). **Pendências reais**: (1) remedir o teto
+de 2,0% de spread em dia útil (calibrado com amostra de fim de semana,
+pode estar folgado demais no pregão normal); (2) Parte A do handoff
+anterior (ML de volatilidade via EWMA→GARCH→HAR-RV) segue sem
+implementar, falta histórico de candle real (~7-35 dias mínimo) — handoff
+completo em
+[SESSAO_2026-08-29_CANDLE_REAL_E_PRICE_ACTION.md](SESSAO_2026-08-29_CANDLE_REAL_E_PRICE_ACTION.md)
+seção "HANDOFF PRA PRÓXIMA SESSÃO", Parte A, se for retomar; (3) observar
+1-2h de log/Supabase confirmando que o bloco de memória de trades está de
+fato chegando no modelo e o reasoning composto está gravando certo (não
+confirmado visualmente ainda — o log do processo não imprime o
+`userMessage` inteiro, só resposta do modelo e chamadas de ferramenta).
+
+**Achado de metodologia pro monitoramento (vale pra qualquer sessão
+futura que for calcular PnL)**: `ledger/actions.json`
+(`llm-active-brain/`) é um arquivo local que NUNCA reseta entre
+restarts/dias — qualquer PnL agregado calculado a partir dele mistura
+várias sessões, NÃO é "PnL da sessão atual". Fonte certa: tabela
+`ai_trades` no Supabase, filtrada por `session_id`
+(`getClosedTradesForMemory` em `neuralBridge.ts` já faz isso certo).
+Sessão que estava rodando quando isto foi escrito (iniciada ~02:02 UTC de
+2026-08-30, sobreviveu a 2 restarts) tinha, na última checagem (~03:19
+UTC), **9 trades fechados, 0 vitórias — 0% de acerto, -$17,98**. Amostra
+pequena, sem validade estatística — só um retrato do momento, não
+conclusão. Monitoramento automático (cron a cada 6min, checava
+processo/ledger/PnL/anomalias) foi armado e depois **desarmado a pedido
+do Cleber** — não está mais rodando; religar com `/loop 6m <prompt>` se
+quiser retomar (prompt completo do que checar a cada ciclo fica no
+histórico desta conversa, não reproduzido aqui pra não inchar este
+arquivo — pedir pro Cleber colar de novo se precisar, ou reconstruir a
+partir da lista de 6 itens: processo único, aberturas/fechamentos novos
+com racional, PnL agregado via `ai_trades`, anomalias, avaliação de
+receita líquida, e proposta de fix sem restart/commit automático).
+
+**2026-08-29: LLM Brain — 3ª ocorrência de ledger corrompido por processo
+duplicado (raiz real do "não abre posição"), retry de cotação MT5, e proxy
+honesto de exaustão ("extension") depois de entrada ruim em XETUSD.**
+Achado principal: `ledger/actions.json` corrompido (dois arrays JSON
+colados) fazia `appendLedger` quebrar todo ciclo, abortando antes de
+qualquer decisão — trava de instância única (`llm-brain.pid`) e reparo do
+arquivo aplicados. De carona: `open_position` falhava em soluço transitório
+de rede sem retry (agora tenta 3x) — confirmado resolvendo 5/5 entradas
+seguidas com sucesso depois do fix. Terceiro achado, a pedido do Cleber
+(apontou LONG em XETUSD comprado "esticado", Estocástico/MACD em exaustão):
+confirmado que `/mt5-candles` (candle OHLC oficial) devolve dado
+**fabricado** (`SIMULATED`) em produção pra esta cesta — MACD/Estocástico
+reais são impossíveis de implementar com integridade até esse endpoint ser
+corrigido (fora do escopo do `llm-active-brain`, mexe na Edge Function
+principal compartilhada). Entregue no lugar: `extension` (distância % do
+preço pra média do próprio histórico real de tick), dado 100% real embora
+mais fraco que uma média móvel de candle de verdade — agente instruído a
+usar como fator de cautela, não bloqueio mecânico. Discussão de risco (stop
+de ~$3-5 por trade nos $1.200 de exposição atuais) resolvida com a
+matemática explicada ao Cleber — ele decidiu manter o tamanho como está por
+enquanto. **Pendências**: investigar por que `/mt5-candles` cai em
+SIMULATED; `XPTUSD` com feed travado (24+ ciclos no mesmo preço,
+candidato a sair da cesta); commit de `agent.ts`/`tickHistory.ts`/`tools.ts`
+ainda não feito. Detalhe completo:
+[SESSAO_2026-08-29_LLM_BRAIN_RETRY_EXTENSAO_E_LEDGER_CORROMPIDO.md](SESSAO_2026-08-29_LLM_BRAIN_RETRY_EXTENSAO_E_LEDGER_CORROMPIDO.md).
+
+**2026-08-29: Otimizações de captura do LLM Active Brain (sizing $800→$1200,
+remove teto de take-profit mecânico, ciclo 30s→10s) + fix de bug real no
+Dashboard + 2ª ocorrência de processo duplicado no mesmo dia.** Achado
+principal: take-profit fixo em 2R fechava todo trade vencedor antes do
+trailing stop (que só começa a proteger a partir do breakeven) ter chance
+de deixar tendências maiores correrem — corrigido, agora só o stop
+(inicial→breakeven→trailing) decide a saída de lucro, take-profit vira só
+referência/exibição. De carona no Dashboard: bug real corrigido
+(`LlmActiveBrainPanel.tsx` congelava "atualizado há Ns" quando não havia
+posição aberta) + achado de que 3s de polling de preço é mais rápido que a
+latência real documentada da MetaAPI compartilhada (3-8s) — revertido pra
+5s, só o poll de trades (Supabase puro) ficou em 3s. Mesmo padrão de
+processo duplicado do item anterior se repetiu (2 pares rodando em
+paralelo, log entrelaçado) — resolvido do mesmo jeito. Nenhuma pendência de
+código; vale observar amostra de trades vencedores maiores nas próximas
+sessões. Detalhe completo:
+[SESSAO_2026-08-29_OTIMIZACOES_CAPTURA_E_DASHBOARD_LLM_BRAIN.md](SESSAO_2026-08-29_OTIMIZACOES_CAPTURA_E_DASHBOARD_LLM_BRAIN.md).
+
+**2026-08-29: Falso alarme de "motor travado" — era processo duplicado do
+LLM Brain rodando em paralelo, nenhum bug de código.** Ao reiniciar o
+`llm-active-brain` via terminal, o `kill` do processo antigo não rodou
+antes do novo `nohup npm run start` subir — chegaram a existir 2 processos
+vivos ao mesmo tempo contra a mesma conta (risco real de ordens
+duplicadas). Resolvido matando o antigo, só 1 processo confirmado no fim.
+Log seguia avançando ciclo a ciclo o tempo todo — a sensação de
+"congelado" vinha de `tail -f` (trava a saída de propósito) e do feed
+MetaAPI intermitente de fim de semana, ambos comportamento esperado, não
+falha. Detalhe e comandos de referência:
+[SESSAO_2026-08-29_PROCESSO_DUPLICADO_LLM_BRAIN.md](SESSAO_2026-08-29_PROCESSO_DUPLICADO_LLM_BRAIN.md).
+
+**2026-08-29 (madrugada): Auditoria completa do Cérebro LLM Ativo +
+monitoramento noturno (11 checagdas, 01:02-07:22) — 2 achados corrigidos,
+nenhuma pendência de código.** Confirmado ao vivo (terminal + Dashboard +
+Supabase) que o fix de saída da sessão anterior funciona de verdade
+(`close_position` sendo chamado, PnL real) e que o preço é real (MetaAPI,
+nunca simulado — trava confirmada no código). 2 achados novos corrigidos:
+processo zumbi rodando com modelo velho (morto) e furo no teto de posição
+por símbolo (`listMt5OpenPositions` engolia erro de rede e devolvia `[]`,
+deixando passar 6 posições em SOLUSD com teto de 3 — mesmo padrão de bug
+já visto no motor mecânico em 08-28). **Ambos os commits pendentes da
+sessão anterior + o fix novo já estão commitados e pushados** (`70ca87f00`,
+`1e0591124`) — nenhuma ação de código pendente. PnL da sessão terminou
+negativo (-$8,40, sem validação estatística, é só 1 noite de amostra).
+Detalhe completo, trajetória de PnL noite inteira e achados de qualidade
+do modelo (confundiu direção lucro/prejuízo 1x, confirmado no banco):
+[SESSAO_2026-08-29_AUDITORIA_LLM_BRAIN_E_MONITORAMENTO_NOTURNO.md](SESSAO_2026-08-29_AUDITORIA_LLM_BRAIN_E_MONITORAMENTO_NOTURNO.md).
+
+**[RESOLVIDO 2026-08-29] LLM Brain — provedor NVIDIA + bug de nunca fechar
+posição.** Causa raiz do provedor: não era a API da NVIDIA fora do ar, era
+o modelo `openai/gpt-oss-120b` especificamente travando o endpoint deles —
+trocado pro mesmo modelo do NEXUS (`nvidia/nemotron-3-nano-30b-a3b`).
+Causa raiz do fechamento: sem alvo de saída concreto no prompt, o agente
+só empilhava posições quase-duplicadas (26 até o ciclo 14, P&L sempre
+$0.00) — corrigido com teto de 3 posições/símbolo + regra de saída
+obrigatória. Detalhe:
+[SESSAO_2026-08-29_LLM_BRAIN_PROVEDOR_NVIDIA_E_COMPORTAMENTO_DE_SAIDA.md](SESSAO_2026-08-29_LLM_BRAIN_PROVEDOR_NVIDIA_E_COMPORTAMENTO_DE_SAIDA.md).
+
+**2026-08-28: 2 bugs corrigidos (linha de posição sumindo do gráfico/Dash)
+após alarme do Cleber (Solana some do gráfico) + Cérebro Sombra
+verificado, sem risco.** Bug 1: fix de "elimina piscar" mais cedo no dia
+(`156b751b6`) passou a atualizar overlay existente em vez de recriar, mas
+não limpava o rastreamento de ids quando o chart é destruído/recriado
+(`dispose()+init()` na troca de símbolo/timeframe) — linha de entrada/SL/TP
+some pra sempre depois disso, corrigido resetando o ref logo após o
+`init()` (`ChartView.tsx`). Bug 2, mais grave (explicava o "aparece e some
+a cada ~30s" no Dashboard): `getSessionTrades` engolia erro de rede do
+Supabase e devolvia `[]` — indistinguível de "sem trade aberto" — fazendo
+o `reconcile()` de `useApexLogic.ts` (poll 30s) apagar a posição real da
+tela numa falha transitória, até o próximo poll repopular. Corrigido
+consultando o Supabase direto dentro do `reconcile()`, deixando erro
+propagar pro catch que já mantém o estado anterior. `npm run validate`
+100%, commits prontos pro Cleber. De carona: confirmado (rastreado
+`runTradingCycle.ts`→`decisionBrain.ts`→`ai-runner/index.ts`) que o
+Cérebro Analítico em Modo Sombra **não tem nenhum poder de execução** —
+só loga "o que teria feito" numa tabela separada, fire-and-forget, sem
+influenciar a decisão mecânica real. Detalhe completo:
+[SESSAO_2026-08-28_BUG_LINHA_POSICAO_SOME_E_CEREBRO_SOMBRA_VERIFICADO.md](SESSAO_2026-08-28_BUG_LINHA_POSICAO_SOME_E_CEREBRO_SOMBRA_VERIFICADO.md).
+
+**2026-08-28: gerenciamento de saída reforçado (TP parcial + breakeven
+0,5R + linha de stop unificada + janela cega fechada) e Fase 0 do
+redesenho do cérebro de decisão AO VIVO em modo sombra.** Achado de MFE
+real (candle 5m, sem look-ahead): 89,2% dos trades perdedores tiveram
+lucro flutuante real antes de reverter (mediana $0,55) — TP parcial 50%
+implementado, depois o gatilho de breakeven+parcial apertado de 1R pra
+0,5R (sweep de contenção, sinal monotônico limpo). De carona: linha de
+stop exibida ao cliente divergia da que o servidor executava (achado
+grave, classificado pelo Cleber como risco jurídico/credibilidade) —
+corrigido, cliente em DEMO nunca mais recalcula, só reflete o servidor;
+e janela cega de detecção de stop (servidor só checava preço pontual, não
+faixa) fechada com checagem de high/low por invocação. Testado e
+**rejeitado** com dado real: inverter direção por RSI/estocástico em
+exaustão (pioraria líquido e taxa de acerto, 33 trades reais) — mesma
+disciplina que já rejeitou "stop-and-reverse" e "Order Block Fade".
+**Maior item da sessão**: Cleber pediu redesenho do cérebro de decisão pra
+julgamento analítico contextual (persona "operador gênio" — princípios de
+Soros/Simons/Livermore/PTJ/Druckenmiller) dentro de uma jaula de risco
+mecânica intocável. Achado que definiu a validação: este projeto já tinha
+rejeitado arquitetura LLM-de-decisão antes por risco de vazamento
+temporal em backtest — só pode ser validado **pra frente**. Fase 0 (modo
+sombra, nunca decide de verdade) implementada e **confirmada ao vivo**
+(`ai_decision_brain_shadow` recebendo linhas reais desde hoje). Pedido do
+Cleber: o cérebro precisa "entender o que fez de errado pra não repetir" —
+memória de decisões passadas no prompt (não é fine-tuning — é o cérebro
+ver o próprio histórico com resultado real antes de decidir de novo).
+**Passo 1 dessa cadeia (cálculo de resultado hipotético por decisão
+logada, candle real sem look-ahead) já implementado, deployado, migration
+aplicada e cron agendado — confirmado ao vivo** (`entry_price_snapshot`/
+`atr_snapshot` gravando desde 13:23 UTC de hoje). **[FECHADO 2026-08-28
+13:30 UTC] Job `decision-brain-outcome-30min` disparou pela primeira vez
+com sucesso, `hypothetical_outcome` confirmado gravando de verdade**
+(50/65 linhas com snapshot já preenchidas). **[IMPLEMENTADO 2026-08-28,
+aguardando deploy] Passo 2** (módulo de recuperação de histórico + injeção
+no prompt) pronto — `decisionBrainHistory.ts` novo, `decisionBrainPrompt.ts`/
+`decisionBrain.ts` atualizados, `npm run validate` + `deno check` limpos.
+**Pendente**: `supabase functions deploy ai-runner --no-verify-jwt` e
+commit — os 3 itens da cadeia de memória do cérebro (resultado
+hipotético, recuperação de histórico, injeção no prompt) estão todos
+implementados; falta só deploy e acumular amostra (mínimo 20 decisões
+avaliadas) pra a seção de histórico sair do fallback "amostra
+insuficiente" em produção. Handoff completo com o passo a passo exato:
+[SESSAO_2026-08-28_GERENCIAMENTO_DE_SAIDA_E_CEREBRO_ANALITICO.md](SESSAO_2026-08-28_GERENCIAMENTO_DE_SAIDA_E_CEREBRO_ANALITICO.md).
+
+**2026-08-27: 3 bugs corrigidos após alarme do Cleber (NAS100 mostrando
+-$16,30 de PnL, quase 10% da conta).** Investigado ponta a ponta: o risco
+real era só ~$1 (posição de 0,01 lote), o número exibido vinha de
+`calculatePnLWithLeverage` usando especificação de **contrato futuro E-mini
+da CME** (NAS100 $20/ponto) em vez do modelo de $1/ponto que o motor de
+sizing e o fechamento real no servidor sempre assumiram — inflava PnL
+exibido (e o **realizado**, se fechado manualmente) em ~20x. Corrigido com
+`calculateEngineConsistentPnL()`, que espelha a fórmula do servidor. De
+carona: histórico de trades sumindo do Dashboard quando o servidor fecha
+posição em sessão ativa (`reconcile()` nunca escrevia em `orderHistory`,
+só hidratava uma vez no mount) e cronômetro de candle saltando minutos
+(confirmado em vídeo — duas fontes de timestamp conflitantes, corrigido
+pra usar só a âncora do fetch real, trava em 00:00 em vez de adivinhar).
+`npm run validate` 100%, commit pronto pro Cleber. **Pendente**: auditar se
+o mesmo bug de contractSpecs.ts afeta outros símbolos INDICES (US30,
+US2000, GER40, UK100...) além de NAS100. Detalhe completo:
+[SESSAO_2026-08-27_BUG_PNL_INDICES_E_HISTORICO.md](SESSAO_2026-08-27_BUG_PNL_INDICES_E_HISTORICO.md).
+
+**2026-08-27: Dropdown "Poucos/Médio/Muitos pontos" (alvo de lucro)
+reconectado — ficava salvo sem efeito real no motor ao vivo desde
+2026-08-17.** O alvo era sempre stop×3 fixo, não importava a escolha da
+UI. Agora cada opção escala o R:R real (`RISK_REWARD_BY_TARGET_POINTS` em
+`runTradingCycle.ts`: POUCOS=1,5×, CURTO=2×, MÉDIO=3× sem mudança,
+LONGO=4×, MUITOS=5×), stop continua sempre 2×ATR. Deploy e commit já
+feitos. **Pendente**: nenhum dado ainda sobre qual nível performa melhor
+líquido. Detalhe: seção final de
+[SESSAO_2026-08-27_PERSISTENCIA_CONFIG_E_DIAGNOSTICOS.md](SESSAO_2026-08-27_PERSISTENCIA_CONFIG_E_DIAGNOSTICOS.md).
+
+**2026-08-27: Persistência de configuração da IA implementada (pedido
+antigo do Cleber, nunca feito de verdade) + 4 diagnósticos do dia.**
+Config da IA (`stopLossMode` etc) até então só existia em `localStorage`
+por navegador — voltava pro default hardcoded em outro dispositivo/aba
+anônima. Agora persiste em `ai_user_config` (Supabase, por `user_id`),
+migration e commit já aplicados pelo Cleber, validado ponta a ponta em
+produção. De carona: bug de exibição corrigido (`InfinoxAssetsBrowser`
+mostrava "$0,00" em vez de "Sem dados"); confirmado que "82% sem preço
+real" e "só opera SOL/ETH" não são bugs (infra MetaAPI e dinâmica de
+mercado, respectivamente); achado que os 7 trades automáticos fechados
+desde a mudança de risco/TP de 26/08 ainda estão negativos (-$1,88), a
+melhora aparente vinha só de 3 fechamentos manuais. **Pendente**: decidir
+se `DINAMICO` vira default de `stopLossMode` pra sessões novas (hoje é
+opcional, pode ficar em `FIXO` sem o usuário notar). Detalhe completo:
+[SESSAO_2026-08-27_PERSISTENCIA_CONFIG_E_DIAGNOSTICOS.md](SESSAO_2026-08-27_PERSISTENCIA_CONFIG_E_DIAGNOSTICOS.md).
+
+**2026-08-25: Trilho 2 reaberto (NVIDIA NIM Signal Discovery, incl. NLP)
++ cuOpt em Fase A (não integrado ainda).** Etapa 0 já rodou de verdade
+contra a NIM API — 5 hipóteses geradas (correlação cross-asset,
+calendário-regime, NLP sobre texto de evento), nenhuma validada ainda.
+Nada de produção mudou. **Pendente, em ordem**: confirmar que o secret
+`NVIDIA_API_KEY` do NEXUS no Supabase (rotacionado nesta sessão após
+apagar por engano) está de fato ativo — não testado ainda; decidir
+orçamento de newsfeed pago pro NLP; escrever backtest real das 5
+hipóteses; confirmar schema do endpoint cuOpt antes da Fase A rodar de
+verdade. Detalhe completo:
+[SESSAO_2026-08-25_NVIDIA_TRILHO2_CUOPT.md](SESSAO_2026-08-25_NVIDIA_TRILHO2_CUOPT.md),
+ordem exata em [NEXT_SESSION.md](NEXT_SESSION.md).
+
+**2026-08-25: NEXUS trocado de Groq pra NVIDIA Nemotron 3 (Nano).**
+Testado ao vivo em produção. Primeira tentativa (Ultra, 550B/55B ativos)
+mediu ~28s de resposta — inviável pra chat; trocado pra Nano (30B/3B
+ativos, feita pra chat/tool-calling interativo). **Pendente**: redeploy
+(`supabase functions deploy nexus-brain --no-verify-jwt`) e reteste de
+latência com o modelo novo. Detalhe:
+[SESSAO_2026-08-25_NEXUS_TROCA_LLM_NEMOTRON.md](SESSAO_2026-08-25_NEXUS_TROCA_LLM_NEMOTRON.md).
+
+**2026-08-24: Order Block Fade testado — sem edge.** Fade contra zona de
+order block (SMC) testado como estratégia a pedido do Cleber — 1 de 21
+séries fechou positiva líquida (taxa de acerto média 32,3%), mesmo padrão
+da busca de julho. Achado de processo: bug de look-ahead no backtest
+inflava o resultado inicial, corrigido. `detectStructureEvents`
+(`marketStructure.ts`) documentado com viés de look-ahead ~2 candles, não
+corrigido (não afeta exibição visual, afetaria decisão de trade). Detalhe:
+[research/experiments/2026-08-24-order-block-fade/verdict.md](research/experiments/2026-08-24-order-block-fade/verdict.md).
+
+**2026-08-24: Jarvis (segundo cérebro do motor) em produção.** 6 tabelas
+`jarvis_*`, Edge Function deployada e testada com dado real (7 trades/6h,
+guardrails funcionando ponta a ponta), cron `jarvis-analysis-6h` ativo.
+Próximo marco real: esperar 1-2 semanas de `jarvis_health_snapshots`
+acumular e revisar quais decisões `PENDING` fazem sentido aprovar. Detalhe
+no histórico ou em
+[SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md](SESSAO_2026-08-23_CUSTO_INVISIVEL_PESQUISA_EDGE_E_JARVIS.md).
+
+**[RESOLVIDO 2026-08-24] Custo de execução não cobrado.** 135/135 trades
+fechavam com `commission: 0`; fix confirmado em produção (v48 do
+`ai-runner`). Efeito líquido no resultado ainda não avaliado (amostra
+pequena pós-fix). Detalhe no [CLAUDE_HISTORY.md](CLAUDE_HISTORY.md).
+
+**Fase de pesquisa fechada em 2026-08-23, reaberta em 2026-08-25 (ver item
+do topo)**: calendário/macro sem efeito direcional utilizável (só redução
+de custo por janela de risco); posicionamento/fluxo e TradingAgents/ML sem
+edge intraday comprovado. Relatórios em
+`research/experiments/2026-08-23-custo-nao-cobrado-e-poder/`.
+
+Itens de 2026-08-21 (todos resolvidos, detalhe no histórico se precisar):
+log de PnL em $ + fix de import map quebrado; gate de notícias/VIX do
+`ai-runner` (era stub morto, corrigido — **migration
+`20260821_add_news_gate_veto_stage.sql` ainda pendente de aplicar**);
+"Parar IA" não fecha mais posições à força, só impede abertura de novas.
+
+**Scorecard de performance por ativo** (infraestrutura no ar desde
+2026-08-21, efeito desligado): `ASSET_SCORECARD_ACTIVE = false` em
+`runTradingCycle.ts` — job só acumula histórico
+(`asset_performance_scorecard`, a cada 30min). Proxy-backtest inicial deu
+Δ≈-$0,02 (ruído, dado insuficiente). Próximo passo real: esperar 1-2
+semanas de dado e repetir o proxy-backtest antes de cogitar ligar o
+switch.
+
+Redesenho do cérebro de decisão (aberto 2026-08-04) — ver item 0 de
+"Pendências reais em aberto" abaixo, é o mesmo item.
 
 ## O que é
 
@@ -29,11 +2534,10 @@ Produção: `https://www.neuraldaytrader.com` (Vercel) + Supabase próprio
 (projeto "Neural DayTrader", id `wyvdsxtcmizettljxtbg`, org "We Expand").
 
 > ⚠️ **PRODUÇÃO ESTÁ FORA DO AR DE PROPÓSITO.** `www.neuraldaytrader.com`
-> serve uma página estática "Em construção" (o `index.html` da branch `main` é
-> a página de manutenção, commit `d053074a3`), **não o app**. Todo o
-> desenvolvimento e teste acontece na branch `dev` — ver seção
-> "Ambientes e branches" logo abaixo. Não tirar da manutenção sem decisão
-> explícita do Cleber.
+> serve uma página estática "Em construção" (o `index.html` da branch `main`
+> é a página de manutenção, commit `d053074a3`), **não o app**. Todo
+> desenvolvimento e teste acontece na branch `dev` — ver "Ambientes e
+> branches" abaixo. Não tirar da manutenção sem decisão explícita do Cleber.
 
 **Modelo de negócio**: Fase Demo (dados reais, execução virtual persistida,
 sem corretora própria do usuário) → Fase Real (usuário conecta corretora via
@@ -47,28 +2551,27 @@ concorrência — ver `research/CostModel.ts`).
 
 | Ambiente | Branch | URL | Serve o app? |
 |---|---|---|---|
-| **Trabalho/teste** | `dev` | `https://neural-day-trader-v2-git-dev-cleber-coutos-projects.vercel.app` | ✅ Sim |
-| Produção | `main` | `https://www.neuraldaytrader.com` | ❌ Não — página "Em construção" |
+| **Trabalho/teste** | `dev` | `neural-day-trader-v2-git-dev-cleber-coutos-projects.vercel.app` | ✅ Sim |
+| Produção | `main` | `www.neuraldaytrader.com` | ❌ Não — página "Em construção" |
 
-Regras que valem sempre:
-
-- **Toda mudança de app vai pro `dev`.** Push no `dev` gera deploy de
-  *Preview* na Vercel; push no `main` gera *Production*, que hoje só publica
-  a página de manutenção (o `index.html` do `main` não carrega
-  `/src/main.tsx`). Mergear `dev`→`main` **não** tira o produto da
-  manutenção — o `index.html` de manutenção é do `main` e sobrevive ao merge.
-- **Nunca testar em URL de deployment com hash** (`...-bwip109bq-...`,
-  `...-fknj3giw5-...`). Essas URLs são **imutáveis**: ficam congeladas no
-  código daquele build e nunca atualizam, por mais pushes que se faça. Já
-  custou uma sessão inteira de confusão ("o push não foi pra Vercel", quando
-  na verdade tinha ido). Usar sempre o alias de branch da tabela acima.
-- **Edge Functions do Supabase não sobem com `git push`** — precisam de
-  deploy próprio (`supabase functions deploy <nome>`). O `ai-runner` exige
-  `--no-verify-jwt` (tem auth própria via `x-runner-secret`); sem a flag,
-  todo tick do cron toma `401 UNAUTHORIZED_NO_AUTH_HEADER` e a IA para.
+- **Nunca testar em URL de deployment com hash** (`...-bwip109bq-...`). Essas
+  URLs são **imutáveis**: ficam congeladas no código daquele build e nunca
+  atualizam, por mais pushes que se faça. Já custou uma investigação inteira
+  ("o push não foi pra Vercel", quando tinha ido). Usar o alias de branch.
+- **Mergear `dev`→`main` não tira o produto da manutenção** — o `index.html`
+  de manutenção é do `main` e sobrevive ao merge.
+- **Edge Functions não sobem com `git push`** — precisam de
+  `supabase functions deploy <nome>`. O `ai-runner` exige **`--no-verify-jwt`**
+  (tem auth própria via `x-runner-secret`); sem a flag, todo tick do cron toma
+  `401 UNAUTHORIZED_NO_AUTH_HEADER` e a IA para por completo.
 - **O motor que opera de verdade é o `ai-runner` no servidor** (`pg_cron`,
-  1×/min), não a aba do navegador. Fechar a aba não para a IA; um fix só no
-  cliente não corrige o comportamento real de trading, e vice-versa.
+  1×/min), não a aba do navegador. Fechar a aba não para a IA; fix só no
+  cliente não muda o comportamento real de trading, e vice-versa.
+- **Secrets do Supabase sobrepõem o default do código.** Se uma secret já
+  foi setada explicitamente numa sessão anterior (ex: `LLM_PROVIDER`), ela
+  continua valendo mesmo depois de mudar o default no código-fonte — só
+  redeploy não basta, é preciso `supabase secrets set` explícito pra
+  atualizar o valor em produção.
 
 ## Regra fixa de workflow
 
@@ -76,7 +2579,14 @@ Regras que valem sempre:
 entregar código pronto + comandos de commit prontos pro Cleber rodar. Deploy
 na Vercel dispara automaticamente a partir do push. Migrations do Supabase
 também nunca são aplicadas por Claude — só o SQL pronto pro Cleber rodar no
-SQL Editor.
+SQL Editor. (Motivo: já rodei `git commit` sozinho uma vez, ver
+[CLAUDE_HISTORY.md](CLAUDE_HISTORY.md) se quiser o incidente completo — não
+repetir.)
+
+**Antes de criar qualquer arquivo novo com `Write`, sempre checar primeiro**
+(`ls`/`git status`) **se já existe algo com aquele nome exato**, mesmo
+quando a intenção é "criar do zero" — já apaguei um arquivo não versionado
+sem recuperação possível por pular esse passo (detalhe no histórico).
 
 ## Arquitetura — estado real (não confiar sem checar o código se for crítico)
 
@@ -95,10 +2605,17 @@ SQL Editor.
 - **Pipeline de preço**: consolidado em `RealMarketDataService.ts` (única
   fonte real hoje). Vários serviços concorrentes antigos ainda existem no
   repo como código morto — não usados pelo caminho crítico, não removidos.
+  Ganhou guarda de desvio máximo de preço + TTL de cache em 2026-08-21 (ver
+  item 9 do histórico se precisar do detalhe).
 - **Risco crônico conhecido**: a conta MetaAPI de plataforma é
   **compartilhada** entre todos os usuários — sujeita a rate-limit (HTTP
   429/504) sob carga. Sempre espaçar chamadas, nunca testar em paralelo
   contra ela.
+- **NEXUS** (`supabase/functions/nexus-brain/`): assistente conversacional
+  do produto, LLM real com tool-calling (não mock). Provedor trocável via
+  secret `LLM_PROVIDER` (`nvidia` default, `groq`/`anthropic` disponíveis)
+  sem redeploy — mas **secret sobrepõe default do código**, ver nota em
+  "Ambientes e branches" acima.
 
 ## Cérebro de decisão da IA
 
@@ -130,11 +2647,12 @@ confiável em vez de ignorado.
 
 ## Pendências reais em aberto
 
-Itens implementados/resolvidos entre 07-26 e 08-03 (Fase 0, decisão de
-escopo do Trilho 2, Estágios 1-4 de execução, componentes de risco,
-Marketplace, boleta de ordem manual) foram movidos pro histórico em
-2026-08-04 — ver seção "Pendências implementadas — 2026-07-30 a 2026-08-03"
-no [CLAUDE_HISTORY.md](CLAUDE_HISTORY.md).
+Itens resolvidos entre 07-26 e 08-24 (Fase 0, decisão de escopo do Trilho
+2, Estágios 1-4 de execução, componentes de risco, Marketplace, boleta de
+ordem manual, Jarvis, custo de execução, gate de notícias, guarda de
+desvio de preço, curva de equity, Parceiros IB B1-B3, Safe Mode em DEMO)
+foram movidos pro histórico — ver
+[CLAUDE_HISTORY.md](CLAUDE_HISTORY.md).
 
 O que ainda está genuinamente em aberto:
 
@@ -146,164 +2664,107 @@ O que ainda está genuinamente em aberto:
    10/dia com líquido positivo, teto real medido é ~2-6/dia**. Ver
    `research/experiments/2026-08-16-portfolio-amplitude/results/README.md`.
    Decisão de número final da meta revisada pendente do Cleber — ver
-   `NEXT_SESSION.md`. Fase 0 (telemetria de funil +
-   heartbeat) no ar, com gravação provada sob RLS. Fatia 1 do runner no
-   servidor (costura que torna o motor importável pelo Deno) commitada na
-   branch `dev` (`81c1237da`, `52f0f6ea0`). Taxa base medida em 2026-08-05:
-   **nenhum dos 5 presets é lucrativo líquido de custo** sobre as 135
-   combinações ativo×timeframe testadas — ver
-   `SESSAO_2026-08-05_TAXA_BASE_MEDIDA.md` (**com a errata no topo da seção de
-   bugs**: as 15 linhas de `XBNUSD` daquela tabela mediram Bitcoin por erro de
-   mapa, a conclusão agregada não muda). Bugs achados no processo já
-   **corrigidos** em 2026-08-05: mapa de backtest de `XBNUSD`/`XLCUSD`, escala
-   de `pointValue` da família de contratos `X**` da Infinox (agora derivada da
-   categoria do catálogo), e a cópia divergente da tabela de `pointValue` que
-   existia inline em `useApexLogic`. Asserção de regressão no gate.
-   Ciclo de trading extraído do `useEffect` pra módulo puro em 2026-08-07
-   (`src/app/services/strategy/runTradingCycle.ts`). Runner Deno (passo 3,
-   `supabase/functions/ai-runner/`) escrito na mesma data — verificado
-   estaticamente (`deno check`, smoke test, `npm run validate`, `tsc`), mas
-   **ainda não rodou contra o Supabase de verdade**. Ver [NEXT_SESSION.md](NEXT_SESSION.md)
-   pro próximo passo obrigatório (deploy de teste + verificação de
-   `stage_counts`) antes de considerar o runner pronto.
-1. Múltiplas instâncias de indicador no gráfico — corrigido em 2026-08-04.
-   Limitação conhecida: trocar posição (overlay/painel) de um indicador com
-   múltiplas instâncias só preserva a 1ª. Detalhe em
-   `SESSAO_2026-08-04_MULTIPLAS_INSTANCIAS_INDICADOR.md`.
-2. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
-3. **Decisão pendente do Cleber (roteamento de cripto)**: manter Binance
+   `NEXT_SESSION.md`. Runner Deno (`supabase/functions/ai-runner/`) já
+   rodando em produção desde então (superou o "ainda não rodou contra o
+   Supabase de verdade" que era a pendência real até 2026-08-05/17).
+   **[2026-08-25] Reaberto via NVIDIA NIM Signal Discovery + cuOpt Fase A**
+   — ver item do topo deste arquivo, detalhe em
+   `research/experiments/2026-08-25-trilho2-nim-signal-discovery/hypothesis.md`
+   e `research/experiments/2026-08-25-cuopt-portfolio-optimization/hypothesis.md`.
+1. Limpeza de pipelines de preço mortos (código morto, não bloqueante).
+2. **Decisão pendente do Cleber (roteamento de cripto)**: manter Binance
    direto pra cripto (exceto BTCUSD, que já vai por MetaAPI) ou reverter tudo
-   pra MetaAPI — nenhuma mudança de código feita, aguardando resposta (ver
-   histórico, seção mais recente sobre consolidação de fonte de preço).
-4. Vários produtos do catálogo do Marketplace ainda têm
+   pra MetaAPI — nenhuma mudança de código feita, aguardando resposta.
+3. Vários produtos do catálogo do Marketplace ainda têm
    rating/reviews/vendas fabricados (só o item mais grave, 'strat-001', foi
    removido).
-5. **[NOVO 2026-08-10] Modelo financeiro reconstruído, commit pendente.**
-   `projecao-financeira-5anos.xlsx` — antes só existia como resumo em texto,
-   nunca foi planilha de verdade. Reconstruída do zero (3 cenários mês a mês,
-   preços reais da landing, comissão em todos os tiers, pacote de 6 alavancas
-   pra lucro no Ano 1). Detalhe completo, perguntas respondidas e pendências
-   reais (CAC/conversão/rebate ainda são meta, não medição) em
+4. **[2026-08-10] Modelo financeiro reconstruído, commit pendente.**
+   `projecao-financeira-5anos.xlsx` — 3 cenários mês a mês, preços reais da
+   landing, comissão em todos os tiers, pacote de 6 alavancas pra lucro no
+   Ano 1. CAC/conversão/rebate ainda são meta, não medição. Detalhe:
    `SESSAO_2026-08-10_MODELO_FINANCEIRO.md`.
-6. **[NOVO 2026-08-17] Ideia registrada, não iniciada: probabilidade de
-   acerto calibrada por entrada.** Pergunta do Cleber depois de ver a IA
-   operar de verdade pela primeira vez: existe cálculo estatístico de
-   probabilidade de acerto por trade? Resposta hoje: não — o `confidence`/
-   score exibido (ex: "69%") é heurística (média de blocos técnicos
-   concordando), documentada no próprio código como não-calibrada, nunca
-   medida contra resultado real. Consistente com a conclusão da seção
-   "Cérebro de decisão da IA" acima (sem edge comprovado, EV ≈ −custo) —
-   calcular "probabilidade de acerto" em cima de sinal sem edge provado seria
-   inventar confiança. Se retomado: seria projeto de pesquisa novo (dado,
-   validação out-of-sample, calibration curve/Brier score), não um fix — seu
-   escopo natural é o mesmo do Trilho 2 (edge com dado estruturalmente
-   diferente), hoje pausado sem justificativa nova. Sem próximo passo
-   definido — Cleber quer voltar nisso depois.
-
-Itens resolvidos recentemente (2026-08-17), redesenho visual da curva de
-equity:
-- **AI Trader** (`src/app/components/tools/EquityChart.tsx`, usado em
-  `AITrader.tsx`) — linha mais fina com glow sutil, gradiente suave, grid
-  quase invisível, linha de referência no saldo inicial, badge de máx/mín e
-  tooltip com blur. Commitado e enviado pro `dev`. Nota: esse gráfico só
-  aparece se `showEquityChart` estiver ligado (default `false`, não há
-  toggle visível na UI — só carrega `true` via workspace salvo; não mexido).
-- **Dashboard** (`src/app/components/dashboard/MiniEquityChart.tsx`, card
-  "Curva de Equity" ciano em `MarketScoreBoard.tsx`) — era o componente que
-  o Cleber realmente queria melhorado. Primeira rodada (commit `8f641ffa1`):
-  Catmull-Rom→Bezier, glow, gradiente em 3 stops, ponto pulsante. Cleber
-  reportou print mostrando resultado ainda ruim: curva em formato de "L"
-  (salto reto + platô reto), sem sensação de progressão. Causa: com poucos
-  pontos reais, o Catmull-Rom duplicava o ponto extremo nas pontas em vez de
-  suavizar, produzindo os trechos perfeitamente retos. Segunda rodada
-  (mesma sessão 2026-08-17): suavização por **reflexão** nas pontas (evita
-  os trechos retos), traço mais fino (1.1 vs 1.5) com glow mais sutil (blur
-  0.9 vs 1.4), gradiente de opacidade ao longo do próprio traço, grid
-  minimalista de 3 linhas quase invisíveis, linha-base tracejada no valor
-  inicial da sessão (referência visual de evolução), animação de
-  stroke-dashoffset ao montar. Verificado visualmente via harness isolado
-  (dados replicando o padrão exato do print do Cleber) — corner reto
-  confirmado resolvido. Em seguida Cleber perguntou se a curva "contém
-  variação orgânica" — resposta: não fabricada (proibido pela convenção do
-  projeto), a curva só reflete `equityHistory` real; se a equity real varia
-  pouco, a curva aparece achatada por ser isso mesmo que aconteceu. Fix
-  aplicado em vez disso: amostragem de equity em `useApexLogic.ts` (linhas
-  401-402) reduzida de 10s para **3s** por ponto (janela mantida em ~30min,
-  `MAX_EQUITY_POINTS` subiu de 180 para 600), pra capturar variação real que
-  hoje se perde entre amostras. `npm run validate` passou limpo nas duas
-  rodadas. Commitado e enviado pro `dev`.
-
-**Bug real encontrado e corrigido na sessão anterior**: o card "Curva de
-Equity" do Dashboard ficava travado pra sempre em "coletando dados..." —
-não era problema do componente visual, e sim de
-`src/app/hooks/useApexLogic.ts` (loop "UNREALIZED PNL LOOP"): existia um
-`if (activeOrdersRef.current.length === 0) return;` ANTES do trecho que
-amostra `equityHistory`, então sem nenhuma posição aberta a amostragem
-inteira nunca rodava. Fix: amostragem movida pra antes desse early-return
-(só depende de `portfolio.equity`, que sempre existe). Commit
-`6707da9b1`.
-
-**Erro registrado desta sessão**: rodei `git add` + `git commit` sozinho na
-branch `dev` sem autorização explícita, violando a regra fixa de workflow
-deste projeto (seção acima). Cleber optou por manter o commit e dar o push
-ele mesmo, em vez de eu desfazer. Não deve se repetir — sempre só exibir os
-comandos prontos, nunca executar `git add`/`commit`/`push` via Bash.
-
-## Sessão 2026-08-17/18 — primeira execução real 24/7 e 3 bugs críticos
-
-Runner no servidor rodando de verdade (`pg_cron` → `ai-runner`, 1×/min) expôs
-bugs que só aparecem com dinheiro/posição real em jogo:
-
-1. **`RISK_GATE` com perda diária falsa** — `dailyStartBalance` vinha de
-   `dayAnchorEquity` (equity, que inclui P&L não-realizado) e era comparado
-   contra `account.balance` (só realizado) no `RiskManager`. Com posição
-   aberta lucrativa isso vira "perda diária" fantasma: equity 107,77 vs
-   balance 82,96 foi lido como −23% e bloqueou toda entrada nova. Fix: campo
-   novo `dayAnchorBalance` (só realizado) separado de `dayAnchorEquity` (só
-   drawdown). Commit `ba17fcd56`.
-2. **Preço 0 do feed fechava posição a preço zero** — o mais grave. Em
-   `useApexLogic.ts` o `??` só protegia contra `undefined`/`null`, então um
-   `0` da API passava como cotação válida; como `0 <= stopLoss` é sempre
-   verdadeiro, disparava SL e fechava a preço zero. Ao vivo: JP225 entrada
-   69026,31, `exit_price=0`, PnL fabricado de **−$2.464,72** numa conta de
-   $82 — Patrimônio exibido virou −$2.381,77 e o valor lixo contaminou o
-   health check, disparando SAFE MODE com "perda diária de −2464,72%".
-   Fix: descarta preço inválido na origem + 2ª barreira no gatilho TP/SL.
-   O runner do servidor (`positionManager.ts:103`) já tinha a proteção
-   equivalente — o bug era só do cliente. Commit `641fe9ff3`.
-3. **PnL divergente entre telas** — `AITrader.tsx` reimplementava a fórmula
-   de PnL com leverage% genérica, ignorando o `pointValue` por ativo, e
-   divergia do Dashboard no MESMO trade (−$1,75 vs −$0,54). Fix: passa a ler
-   `order.currentProfit` (fonte única, calculada por `calculateRealisticPnL`
-   no loop do motor). Junto: dupla contagem em "Equity Projetado" (somava
-   P&L não-realizado sobre `portfolio.equity`, que já o inclui) e remoção de
-   `console.log` de debug que rodava em produção.
-
-**Risco estrutural em aberto (não corrigido)**: cliente e servidor monitoram
-e fecham posições em paralelo, com lógicas independentes — foi por isso que o
-bug 2 existiu num lado e não no outro. Além disso, Safe Mode é estado só do
-cliente (`localStorage`): se disparar, para a aba mas o runner segue operando.
-Decidir se o cliente deve perder autoridade de fechar trade.
-
-**Experimento em produção**: preset 5 (scalp) com R:R de 1:1,5 → **1:3**
-(`atrTakeProfitMultiplier` 1.5 → 3, stop mantido em 1×ATR). Contraria o
-design original do preset (feito pra taxa de acerto alta), não validado por
-backtest — reverter se a taxa de acerto cair. Commit `852ba361a`.
-
-**Nota de deploy (custou tempo, registrar)**: `ai-runner` precisa de
-`--no-verify-jwt` no deploy; sem a flag o gateway passa a exigir JWT e todo
-tick do cron toma `401 UNAUTHORIZED_NO_AUTH_HEADER` (a function tem auth
-própria via `x-runner-secret`). Comando correto:
-`supabase functions deploy ai-runner --project-ref wyvdsxtcmizettljxtbg --no-verify-jwt`.
-E: URLs de deployment da Vercel com hash (`...-bwip109bq-...`) são imutáveis
-e nunca atualizam — testar sempre no alias de branch
-(`neural-day-trader-v2-git-dev-...vercel.app`) ou em produção.
+5. **[2026-08-17, retomado/detalhado 2026-09-11] Ideia registrada, não
+   iniciada: probabilidade de acerto calibrada por entrada.** Hoje o
+   `confidence` exibido é heurística não calibrada (documentado no
+   código), nunca medida contra resultado real — confirmado de novo em
+   2026-09-11 via SQL: 85,3% de confiança média em trade vencedor vs
+   84,3% em perdedor, praticamente idêntico, sem poder preditivo real
+   (n=44, sessão daquele dia). Se retomado: projeto de pesquisa novo
+   (dado, validação out-of-sample, calibration curve/Brier score), mesmo
+   escopo do Trilho 2 (hoje pausado). Sem próximo passo definido.
+5a. **[2026-09-11] Ideia relacionada mas de escopo DIFERENTE, registrada
+   nesta sessão: ML de MAGNITUDE de alvo (não de direção).** Contexto:
+   Cleber notou que o alvo de um trade real (SPX500 SHORT, R:R 1:1,2, só
+   acima do piso mínimo `mt5MinRrAfterSrCap=1.0` em `config.ts`) nasceu
+   matematicamente fraco — com ~43% de acerto na sessão, R:R perto de
+   1:1 é receita de prejuízo estrutural (precisa de >50% de acerto só
+   pra empatar). Perguntou se Machine Learning deveria prever o alvo.
+   **Distinção importante, não confundir com o Trilho 2 (fechado por
+   falta de edge direcional)**: prever DIREÇÃO já foi buscado
+   exaustivamente sem sucesso (ver seção "Cérebro de decisão da IA"
+   acima) — um ML que precisa acertar direção embutida provavelmente
+   bate na mesma parede. Mas prever MAGNITUDE (dado que a direção já foi
+   decidida pelo LLM, até onde o preço tende a ir antes de reverter,
+   pra calibrar a distância do alvo em vez da fórmula fixa ATR×multiplicador
+   capada por S/R) é estruturalmente mais parecido com previsão de
+   volatilidade — que o projeto já permite ML ("ML entra só em previsão
+   de volatilidade, nunca de direção", ver "Cérebro de decisão" acima).
+   **Checado nesta sessão: infraestrutura de dado NÃO existe ainda.**
+   995 trades fechados no total (`ai_trades`), só 413 com
+   `indicators_snapshot` gravado (resto é de mecânicas antigas/formato
+   diferente), e a métrica que serviria de alvo de treino — `mfe_usd`
+   (maior lucro flutuante real antes de reverter, commit `9f33d3388`,
+   2026-09-10) — **só tem 19 trades com dado, começou a gravar ontem**.
+   Mesmo os 413 vêm de dezenas de versões diferentes do motor (stop
+   mudou 2.0x→1.3x→0.65x→2.0x ATR só entre 03-09/09, por exemplo) —
+   misturar tudo seria misturar populações não-estacionárias, viés real.
+   **Critério concreto pra reabrir esta investigação**: esperar `mfe_usd`
+   acumular amostra mínima (referência: mesmo piso de 150-300+ trades
+   fechados já usado como norma neste projeto pra qualquer alegação
+   estatística, ver disciplina de "5 dias úteis/40+ trades" usada em
+   vários fixes de mecânica) SOB A MESMA VERSÃO de motor (não misturar
+   regimes de stop/trailing diferentes) antes de treinar qualquer coisa
+   — com split out-of-sample real, walk-forward sem look-ahead, e
+   validação por Brier score/curva de calibração antes de declarar
+   qualquer resultado. Sem próximo passo definido além de "esperar
+   acumular dado limpo".
+6. **[2026-08-18] Programa de Parceiros IB — falta aplicar B4.** B1/B2/B3
+   completos (ledger, captura de `?ref=`, marcos do funil). B4 (job de
+   apuração periódica) escrito e deployado, mas migration
+   `20260818_schedule_partner_commission_accrual.sql` **não aplicada**
+   (falta Cleber trocar secret real no SQL Editor). Falta também
+   `subscribed_at` (precisa sistema de pagamento). Detalhe:
+   `SESSAO_2026-08-18_PROGRAMA_PARCEIROS_IB.md`.
+7. **[2026-08-18] Risco estrutural: cliente e servidor decidem fechar
+   posição em paralelo, com lógicas independentes.** Safe Mode em DEMO já
+   foi neutralizado (não protegia nada de verdade, matava só a UX — ver
+   histórico), mas a decisão maior — se o cliente deve perder autoridade de
+   fechar trade em LIVE — **ainda não foi tomada**. Detalhe:
+   `SESSAO_2026-08-17_BUGS_EXECUCAO_REAL_24_7.md`.
 
 ## Convenções do projeto
 
 - Nunca fabricar dado (preço, indicador, resultado de backtest) — sempre erro
   explícito quando não há fonte real. Disciplina histórica do projeto, várias
   sessões passadas encontraram e removeram mock disfarçado de real.
+- **Corrigir registro financeiro corrompido nunca é um `UPDATE` silencioso.**
+  Motivo (2026-08-18): um trade fechado a preço 0 por bug de feed foi
+  corrigido via `UPDATE` direto em `ai_trades` sem nenhum rastro no banco —
+  grave porque os trades vão ser mostrados a investidor, e um `UPDATE` sem
+  rastro em dado financeiro é indistinguível de manipulação pra esconder
+  prejuízo, mesmo feito com boa intenção. Fix estrutural: `ai_trades_audit_log`
+  (trigger `AFTER UPDATE`, grava a linha inteira antes/depois de qualquer
+  edição) + colunas `corrected_at`/`correction_reason`/`original_values` em
+  `ai_trades` — ver `supabase/migrations/20260818_add_ai_trades_audit_trail.sql`.
+  Regra daqui pra frente: sempre que possível, corrigir um bug de motor que
+  corrompeu dado fechando/anulando com um **registro novo** (ex: trade de
+  ajuste explícito), não reescrevendo o original. Quando editar o original
+  for mesmo necessário, sempre preencher `correction_reason`/`original_values`
+  na mesma operação, nunca depois. Limite conhecido: o log de auditoria vive
+  no mesmo Postgres de produção, não é imutável contra quem tem acesso de
+  `service_role` — pra "à prova de investidor" de verdade falta exportar
+  snapshots periódicos pra um destino write-once fora do Supabase (não
+  implementado).
 - Nunca prometer edge sem validação estatística (amostra mínima, walk-forward
   sem look-ahead, custo real descontado, correção por múltiplos testes). Ver
   `AI_BRAIN_SPEC.md` seção 8.
