@@ -266,6 +266,16 @@ export const config = {
   // numa conta pequena, não falta de lógica -- ver rewardCappedByRisk em
   // tools.ts (aviso já reportado nesse caso).
   mt5TargetRewardUsd: Number(process.env.MT5_TARGET_REWARD_USD ?? 5.5),
+  // 2026-11-01 (pedido do Cleber, "perde pouco, ganha muito"): MODO ASSIMETRIA. Lote por RISCO fixo em US$
+  // (nao mais por ganho-alvo fixo), stop no topo/fundo das ultimas velas de 1H (nunca mais curto que o
+  // calculado) e piso de valor trocado por limite de custo sobre o risco. O ALVO continua obedecendo o Setup
+  // do usuario (targetPoints) e todos os caps existentes. Rollback: MT5_ASYMMETRY_MODE=false.
+  mt5AsymmetryMode: (process.env.MT5_ASYMMETRY_MODE ?? "false") === "true",
+  mt5AsymRiskUsd: Number(process.env.MT5_ASYM_RISK_USD ?? 3),
+  mt5AsymSwingCandles: Math.max(6, Math.floor(Number(process.env.MT5_ASYM_SWING_CANDLES ?? 12)) || 12),
+  mt5AsymStopBufferPct: Number(process.env.MT5_ASYM_STOP_BUFFER_PCT ?? 0.0003),
+  mt5AsymMaxStopPct: Number(process.env.MT5_ASYM_MAX_STOP_PCT ?? 0.03),
+  mt5AsymMaxCostFracOfRisk: Number(process.env.MT5_ASYM_MAX_COST_FRAC_OF_RISK ?? 0.35),
   // Teto DURO de risco por trade (como fração do saldo real) -- se o lote
   // mínimo do símbolo (MIN_LOTS/LOT_SIZE em assetBasket.ts) força um risco
   // maior que isso mesmo no menor lote possível, open_position BLOQUEIA a

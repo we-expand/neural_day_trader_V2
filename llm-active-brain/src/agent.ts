@@ -19,6 +19,9 @@ import { MT5_ASSET_BASKET, isSymbolTradable } from "./assetBasket.js";
 import { getUsEconomicCalendar, getPmiStatus, getVixContext } from "./atr.js";
 import { withSpan } from "./otelHelpers.js";
 import { SpanStatusCode } from "@opentelemetry/api";
+import { readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // 🔴 2026-09-06 (achado do Cleber, direto na tela): o painel "Logs do
 // Sistema" ficava dominado por JSON cru de cada get_mt5_quote (200+
@@ -987,6 +990,24 @@ const LEDGER_TYPE_BY_TOOL: Record<string, string> = {
 // ou esgotar `maxIterations` (decisão do LLM -> execução de ferramenta ->
 // ordem na corretora -> confirmação, todos aninhados como filhos deste span
 // via contexto ambiente do OTel -- ver withSpan em otelHelpers.ts).
+// 2026-10-25 (pedido do Cleber): metodo operacional dele em linguagem de instrucao, relido do disco
+// quando o arquivo muda (editar METODO_OPERACIONAL.md nao exige restart). Falha de leitura nunca
+// derruba o ciclo: segue sem o bloco e avisa no log.
+const OPERATING_METHOD_FILE = join(dirname(fileURLToPath(import.meta.url)), "..", "METODO_OPERACIONAL.md");
+let operatingMethodCache: { mtimeMs: number; text: string } | null = null;
+function getOperatingMethodBlock(): string {
+  try {
+    const mtimeMs = statSync(OPERATING_METHOD_FILE).mtimeMs;
+    if (!operatingMethodCache || operatingMethodCache.mtimeMs !== mtimeMs) {
+      operatingMethodCache = { mtimeMs, text: readFileSync(OPERATING_METHOD_FILE, "utf8").trim() };
+    }
+    return operatingMethodCache.text ? `\n\n${operatingMethodCache.text}` : "";
+  } catch (err) {
+    console.warn("[agent] METODO_OPERACIONAL.md nao lido (segue sem o bloco):", err instanceof Error ? err.message : err);
+    return "";
+  }
+}
+
 export async function runAgent(cycle: number, mt5Session?: Mt5Session, focus?: WatcherTrigger): Promise<boolean> {
   return withSpan(
     "trading.cycle",
@@ -1271,7 +1292,7 @@ async function runAgentInner(cycle: number, mt5Session?: Mt5Session, focus?: Wat
           `A entrada esperada é o ROMPIMENTO do topo ou do fundo da faixa, para cima ou para baixo, com candle de 5m FECHADO além do nível.`
         : `\n\n📊 PMI JÁ SAIU há ${(-pmiStatus.minutesToRelease).toFixed(0)} min (${horaBrt} BRT):\n${pmiStatus.summary}\n` +
           `O mercado está tomando direção. Procure o ROMPIMENTO (candle de 5m fechado além da resistência = LONG, além do suporte = SHORT) e entre com ` +
-          `setupType="PMI_REACAO" mirando pontos médios ou grandes (com corredor marcado pelo Cleber, o código põe o alvo na extensão de Fibonacci da altura do corredor e o stop no meio dele; senão, stop e alvo pela 1H). A direção é a do rompimento do PREÇO, não a leitura "boa/ruim" do número.`;
+          `setupType="PMI_REACAO" mirando pontos médios ou grandes (com corredor marcado pelo Cleber, o código põe o alvo na extensão de Fibonacci da estrutura de 1H (máx/mín das últimas 24h) a partir do extremo rompido e o stop no meio do corredor; senão, stop e alvo pela 1H). A direção é a do rompimento do PREÇO, não a leitura "boa/ruim" do número.`;
     }
     if (focus && focus.trigger.startsWith("PMI_")) {
       userMessage =
@@ -1328,7 +1349,7 @@ async function runAgentInner(cycle: number, mt5Session?: Mt5Session, focus?: Wat
         );
 
   const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: systemPromptForCycle },
+    { role: "system", content: systemPromptForCycle + getOperatingMethodBlock() },
     { role: "user", content: userMessage },
   ];
 

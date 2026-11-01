@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getTrialAbortReason, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getPmiStatus, getPmiBreakout, getPmiCorridor, getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
+import { getPmiStatus, getPmiBreakout, getPmiCorridor, getDeepCandles, getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -2967,9 +2967,17 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (isPmiReacao) {
         const corr = getPmiCorridor(symbol);
         if (corr && fillPrice > 0) {
-          const range = corr.top - corr.bottom;
-          const ext = Number(process.env.PMI_FIB_EXTENSION ?? 1.618);
-          const targetPrice = side === "LONG" ? corr.top + ext * range : corr.bottom - ext * range;
+          // Fibonacci SEMPRE pela 1H (Cleber, 23/10): a estrutura cresce na 1H. Altura = maxima/minima das ultimas PMI_FIB_1H_CANDLES velas de 1H
+          // (default 24 = 24h), unidas ao corredor do Cleber; o degrau sai do extremo rompido pra fora. Sem candle de 1H, usa a altura do corredor.
+          const c1h = await getDeepCandles(symbol, "1H").catch(() => null);
+          const n1h = Math.max(6, Math.floor(Number(process.env.PMI_FIB_1H_CANDLES ?? 24)) || 24);
+          const recent1h = c1h && c1h.length >= 6 ? c1h.slice(-n1h) : null;
+          const top1h = Math.max(corr.top, ...(recent1h ?? []).map((c) => c.high));
+          const bottom1h = Math.min(corr.bottom, ...(recent1h ?? []).map((c) => c.low));
+          const range = recent1h ? top1h - bottom1h : corr.top - corr.bottom;
+          const ext = Number(process.env.PMI_FIB_EXTENSION ?? 1);
+          const baseLevel = recent1h ? (side === "LONG" ? top1h : bottom1h) : (side === "LONG" ? corr.top : corr.bottom);
+          const targetPrice = side === "LONG" ? baseLevel + ext * range : baseLevel - ext * range;
           const targetDistPct = (side === "LONG" ? targetPrice - fillPrice : fillPrice - targetPrice) / fillPrice;
           if (!(targetDistPct > 0)) {
             return { error: `PMI_REACAO ${symbol} ${side}: o preco (${fillPrice}) ja passou da extensao ${ext} de Fibonacci do corredor (${targetPrice.toFixed(2)}) -- movimento esgotado, nao persiga.` };
@@ -2978,7 +2986,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           const structuralStopPct = Math.abs(fillPrice - mid) / fillPrice;
           stopPct = Math.max(stopPct, structuralStopPct);
           takeProfitPct = targetDistPct;
-          console.log(`[PMI-FIB] ${symbol} ${side}: corredor ${corr.bottom}-${corr.top} (altura ${range.toFixed(2)}), alvo extensao ${ext} em ${targetPrice.toFixed(2)} (${(targetDistPct * 100).toFixed(3)}%), stop ${(stopPct * 100).toFixed(3)}% (meio do corredor ${mid.toFixed(2)})`);
+          console.log(`[PMI-FIB] ${symbol} ${side}: corredor ${corr.bottom}-${corr.top}, estrutura ${recent1h ? "1H" : "corredor"} ${bottom1h.toFixed(2)}-${top1h.toFixed(2)} (altura ${range.toFixed(2)}), alvo extensao ${ext} em ${targetPrice.toFixed(2)} (${(targetDistPct * 100).toFixed(3)}%), stop ${(stopPct * 100).toFixed(3)}% (meio do corredor ${mid.toFixed(2)})`);
         }
       }
 
@@ -3018,7 +3026,31 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // (nada muda). Ligado => escala PARA BAIXO o alvo de exposição a partir do tamanho de
       // hoje enquanto o E[R] real não se prova positivo; o teto duro de risco continua por cima.
       const riskScale = await getRiskScale();
-      const targetRewardUsd = config.mt5TargetRewardUsd * (balance / config.mt5ReferenceCapitalUsd) * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1) * riskScale.scale;
+      // 2026-11-01 MODO ASSIMETRIA (ver config.ts): stop estrutural de 1H + lote por risco fixo em US$. O alvo
+      // (takeProfitPct) NAO e tocado aqui: segue o Setup do usuario e os caps ja aplicados acima.
+      const asymActive = config.mt5AsymmetryMode && !isFomcBtcPlay && !isPmiReacao;
+      if (asymActive && fillPrice > 0) {
+        const c1hAsym = await getDeepCandles(symbol, "1H").catch(() => null);
+        if (c1hAsym && c1hAsym.length >= 6) {
+          const recentAsym = c1hAsym.slice(-config.mt5AsymSwingCandles);
+          const swing = side === "LONG" ? Math.min(...recentAsym.map((c) => c.low)) : Math.max(...recentAsym.map((c) => c.high));
+          const structPct = (side === "LONG" ? fillPrice - swing : swing - fillPrice) / fillPrice + config.mt5AsymStopBufferPct;
+          if (structPct > config.mt5AsymMaxStopPct) {
+            return {
+              error:
+                `${symbol} ${side}: o ponto de invalidacao (${side === "LONG" ? "fundo" : "topo"} de 1H em ${swing.toFixed(2)}) fica a ${(structPct * 100).toFixed(2)}% do preco, ` +
+                `acima do limite de ${(config.mt5AsymMaxStopPct * 100).toFixed(1)}%. Posicao NAO aberta -- nao aproxime o stop so pra caber; espere o preco chegar mais perto do nivel.`,
+            };
+          }
+          if (structPct > stopPct) {
+            console.log(`[ASSIMETRIA] ${symbol} ${side}: stop ${(stopPct * 100).toFixed(3)}% -> ${(structPct * 100).toFixed(3)}% (${side === "LONG" ? "fundo" : "topo"} de 1H ${swing.toFixed(2)})`);
+            stopPct = structPct;
+          }
+        }
+      }
+      const targetRewardUsd = asymActive
+        ? config.mt5AsymRiskUsd * riskScale.scale * (takeProfitPct / stopPct)
+        : config.mt5TargetRewardUsd * (balance / config.mt5ReferenceCapitalUsd) * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1) * riskScale.scale;
       const rawLotsPreCap = takeProfitPct > 0 ? targetRewardUsd / (takeProfitPct * LOT_SIZE[symbol] * quote.price) : 0;
       // 🔴 2026-09-16 (pedido direto do Cleber): jogada FOMC_BTC_PLAY usa
       // sizing por EXPOSIÇÃO NOTIONAL (10% do patrimônio), não por retorno-
@@ -3153,6 +3185,15 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         const grossReward = amountForCheck * takeProfitPct;
         const roundTripCost = estimateCommissionUsd(symbol, amountForCheck, fillPrice);
         const netReward = grossReward - roundTripCost;
+        if (asymActive) {
+          // Modo assimetria: o risco e fixo, entao o piso de ganho proporcional ao saldo nao se aplica; o que
+          // mata a assimetria e o custo comendo o risco.
+          const riskNow = amountForCheck * stopPct;
+          if (netReward <= 0 || roundTripCost > riskNow * config.mt5AsymMaxCostFracOfRisk) {
+            return `${symbol}: o custo de ida e volta ($${roundTripCost.toFixed(2)}) e grande demais frente ao risco de $${riskNow.toFixed(2)} (limite ${(config.mt5AsymMaxCostFracOfRisk * 100).toFixed(0)}%) ou o alvo nao paga: assimetria destruida. Posicao NAO aberta.`;
+          }
+          return null;
+        }
         if (netReward < minNetRewardUsd) {
           return (
             `${symbol}: o ganho LIQUIDO esperado no alvo seria so $${netReward.toFixed(2)} (bruto $${grossReward.toFixed(2)} menos custo $${roundTripCost.toFixed(2)}), ` +
@@ -3287,7 +3328,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         // proposto e o que CABE antes do proximo nivel (targetCalculator.ts, margem de 10%). Se com esse alvo o piso de valor
         // ou o R:R minimo nao fecham, a entrada NAO sai: perna pequena nao paga a conta. Modo expansao tem alvo proprio (degrau).
         // Rollback: MT5_TARGET_AGENT_LIVE=false.
-        if (process.env.MT5_TARGET_AGENT_LIVE !== "false" && !isFomcBtcPlay && desk.targetPlan?.maxFitTargetPct != null) {
+        if (process.env.MT5_TARGET_AGENT_LIVE !== "false" && !isFomcBtcPlay && !asymActive && desk.targetPlan?.maxFitTargetPct != null) {
           const fitPct = desk.targetPlan.maxFitTargetPct;
           deskSnapshot.targetAgent = { proposedPct: takeProfitPct, maxFitPct: fitPct, verdict: desk.targetPlan.verdict, nearest: desk.targetPlan.nearest };
           if (fitPct > 0 && takeProfitPct > fitPct) {
