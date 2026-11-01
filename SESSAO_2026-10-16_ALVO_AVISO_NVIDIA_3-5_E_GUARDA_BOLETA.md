@@ -118,3 +118,53 @@ de ~2-6/dia com líquido positivo (ver pendência 0 do CLAUDE.md).
 - Modelo: descomentar `nemotron-3-super-120b-a12b` no `.env`, comentar o 3.5.
 - Guarda da boleta: o painel de aviso segue no código, reverter o diff de
   `OrderTicket.tsx:544` religa a 2ª confirmação.
+
+---
+
+# Parte 2 (noite, ~19h-23h BRT): modo fim de semana, "a LLM não abre posição" e a regra "1H decide o lado"
+
+## Diagnóstico (log desde o restart das 14h09, 116 ciclos)
+- A LLM não estava quebrada: 116 `stop` contra 9 tentativas de `open_position`, 0 aprovações da Mesa. Gatilhos de estocástico 5m
+  chegavam em zona neutra, com 1H contra e MACD virando → "sem confluência". É o método do Cleber (na dúvida fica fora).
+- Desperdício real: no fim de semana a cesta ainda tinha índices/petróleo/EURUSD fechados (tick parado 1-2h); a Mesa chegou a ser
+  convocada para SPX500/UK100 com tick obsoleto (~36 chamadas de LLM, analista de 47s). Cleber refez a cesta: **só cripto**.
+- BATUSD estava no Setup mas fora de `assetBasket.ts` (ignorado em silêncio, só aviso no log). Cleber removeu do Setup.
+- R:R de 0,37:1 barrava o BTC (alvo 0,222% x stop 0,597%): o agente de alvo encurtava o alvo e o stop do fim de semana
+  (0,95x ATR) não acompanhava.
+
+## Mudanças (todas em `llm-active-brain/`)
+1. **Stop do fim de semana acompanha o alvo** (`src/tools.ts`, bloco `[ALVO-AGENTE]`): antes só no dia útil e só com
+   `targetPoints=POUCOS`. Rollback: `MT5_WEEKEND_STOP_FOLLOWS_TARGET=false`. Commit `99c2e1ef1` (já em `origin/dev`).
+2. **Vigia ignora ativo com tick parado >60s** (`src/watcher.ts`; antes só o corte de 120s do broker).
+   Rollback: `MT5_WATCHER_MAX_TICK_AGE_S=0`. Mesmo commit `99c2e1ef1`.
+3. **Ganho-alvo por entrada 7 → 10 US$** (`.env`, `MT5_TARGET_REWARD_USD=10.0`, não vai pro git). Motivo: a 1ª entrada
+   (BTCUSD SHORT) saiu com 0,01 lote (mínimo), risco US$1,63, retorno projetado US$2,42; 7 x METADE da Mesa = 3,5 → 0,0145 lote
+   → arredonda pra 0,01. Com 10 o BTC vai a ~0,02 lote (~US$4-5). Cleber: "não tenha medo de botar contrato". Tetos de risco
+   (10%/trade, 25%/dia) seguem valendo. Rollback: voltar a 7.0.
+4. **A 1H decide o lado; 5m/15m só consulta de entrada** (`src/atr.ts` `computeMarketDirection` + `getHigherTimeframeChain`,
+   `src/tools.ts` nos 2 call sites, `src/agent.ts` princípio 0 do prompt). Pedido do Cleber: a LLM se confundia entre 1H e 5m.
+   - 1ª versão usava o rótulo de preço da 1H (24 velas) e dava BAIXA enquanto o MACD 1H e o 4H estavam em COMPRA. Cleber
+     apontou o erro; corrigido: **lado = MACD da 1H** (ALTA só compra, BAIXA só vende, neutro = INDEFINIDO). **4H fica de
+     fora** por decisão do Cleber ("use somente o de uma hora"). O gate `VEREDITO_DIRECAO` em `tools.ts` bloqueia lado contra a
+     1H, salvo `setupType=REVERSAO` com confirmação real. O 5m aparece no `agreement` como "a favor / contra a 1H, só consulta".
+   - Rollbacks: `MT5_DIRECTION_BY_1H=false` (volta 5m+1H), `MT5_DIRECTION_CHAIN_MACD=false` (usa o rótulo de preço da 1H).
+   - Visto ao vivo no log: `Lado pela 1H: 1H BAIXA [MACD 1H BAIXA, MACD 4H neutro] ... 5m ALTA (contra a 1H, so consulta)`.
+   - **Commit pendente do Cleber**: `atr.ts`, `tools.ts`, `agent.ts` (comandos entregues). Motor reiniciado com a regra no ar.
+   - Aviso registrado ao Cleber: a 1H como previsão de lado deu 47-50% em 2 anos (memória `project_leitura_de_lado_1h_descricao_vs_previsao`);
+     é regra de método dele, não edge comprovado.
+
+## Observações
+- 1ª entrada do fim de semana: **BTCUSD SHORT** 22:29Z, aprovada pela Mesa com METADE (convicção 55), alvo 0,400→0,296%, stop
+  0,200% (piso de fim de semana, não derivado do alvo). Abriu ANTES da regra da 1H e contra o MACD de 1H/4H em compra; o
+  fechamento discricionário da IA está suspenso, então só sai por stop/alvo. Cleber duvida que ganhe.
+- Cleber pediu pra ordem manual de teste (perda) ser desconsiderada nas leituras.
+- Mesa: SPX500 LONG rejeitado pelo Master (1H/4H em baixa); UK100/GER40/EURUSD LONG com veto duro de estocástico.
+- NVIDIA: erros de conexão ocasionais, 3.5-super-vl segue sem 429 sustentado.
+
+## Pendente
+1. Cleber rodar o commit de `atr.ts`/`tools.ts`/`agent.ts` (+ `git push origin dev`).
+2. Medir a frequência de entradas no fim de semana (teto medido ~2-6/dia; zero em dia lateral é coerente com o método).
+3. Conferir a 1ª entrada sob a regra da 1H e o lote maior (0,02) com ganho-alvo 10.
+4. Commit do `OrderTicket.tsx` (boleta) ainda pendente da Parte 1.
+5. Decisão aberta: o que fazer se a LLM seguir sem entradas — afrouxar o gatilho (só 5m / zona neutra) é decisão do Cleber, que já
+   decidiu manter os vetos hoje.

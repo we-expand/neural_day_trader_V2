@@ -15,6 +15,8 @@
 
 ## ▶ COMECE AQUI
 
+**[2026-10-26] "Regra das ondas" (estocástico 5m→4H) = bruto zero em 1 ano de BTC/ETH; o lucro manual do Cleber (+US$162, 26 ops, 87% numa compra de 0,4 BTC) veio de gestão (perde pouco, segura o ganho), não da entrada.** Conselho feito; método dele escrito em `llm-active-brain/METODO_OPERACIONAL.md` e lido todo ciclo (motor reiniciado). Stop/alvo/lote ainda são do código (risco 10%): falta stop no topo/fundo do 1H e risco fixo em US$. NEXUS estava mudo (NVIDIA aposentou o Nano em 01/09): padrão trocado p/ Lightning no código, **falta secret + deploy**. Cuidado: `ohlcv_data` grava vela em formação (dados errados). Detalhe: [SESSAO_2026-10-26_ONDAS_DO_CLEBER_CONSELHO_METODO_NA_LLM_RELATORIO_E_NEXUS.md](SESSAO_2026-10-26_ONDAS_DO_CLEBER_CONSELHO_METODO_NA_LLM_RELATORIO_E_NEXUS.md).
+
 **[2026-10-21] "A IA não faz nada" = infra + travas minhas, não estratégia. Conselho, failover NVIDIA, custo corrigido, netting/hedging, e 7 backtests: NENHUM
 sinal mecânico tem vantagem (zero a zero antes do custo; só custo baixo = Russell/NAS100/EURUSD ficam ~0).** Motor reiniciado 12:48 BRT: Mesa OFF
 (réplica de 02/09), failover de modelo (timeout 45s), aborto automático (`MT5_TRIAL_START_ISO=2026-10-21T14:58:00Z`; 3 perdas = pausa 60 min), custo do
