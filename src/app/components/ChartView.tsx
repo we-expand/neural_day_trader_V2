@@ -658,6 +658,13 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
         // Níveis de extensão Fibonacci: 0.618, 1.0, 1.618, 2.618
         const levels = [0.618, 1.0, 1.618, 2.618];
         const direction = pointB.y > pointA.y ? 1 : -1;
+        // 🎯 2026-11-03 (Cleber: "as linhas do alvo ficam pequenininhas, precisam ter a mesma largura que a linha da
+        // base"): os alvos partiam do ponto C e iam só 100px adiante. Agora cobrem exatamente o mesmo trecho
+        // horizontal da base A→B→C (do ponto mais à esquerda ao mais à direita), com um mínimo de 100px caso os
+        // três cliques fiquem quase na mesma vertical.
+        const baseXs = [pointA.x, pointB.x, pointC.x];
+        const levelStartX = Math.min(...baseXs);
+        const levelEndX = Math.max(Math.max(...baseXs), levelStartX + 100);
 
         levels.forEach((level, index) => {
           const y = pointC.y + (range * level * direction);
@@ -668,8 +675,8 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
             type: 'line',
             attrs: {
               coordinates: [
-                { x: pointC.x, y: y },
-                { x: coordinates[coordinates.length - 1].x + 100, y: y }
+                { x: levelStartX, y: y },
+                { x: levelEndX, y: y }
               ]
             },
             styles: {
@@ -685,7 +692,7 @@ const FibonacciExtensionOverlay: OverlayTemplate = {
           figures.push({
             type: 'text',
             attrs: {
-              x: pointC.x + 10,
+              x: levelStartX + 10,
               y: y - 5,
               text: `${(level * 100).toFixed(1)}%`
             },
