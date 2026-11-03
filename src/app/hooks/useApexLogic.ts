@@ -4055,17 +4055,24 @@ export function useApexLogic(
   // manualmente direto no MetaTrader, fora do app).
   const syncPositionsFromMT5 = useCallback((positions: any[]) => {
     setActiveOrders(prev => {
-      const symbolsTrackedElsewhere = new Set(
-        prev.filter(o => !o.id.startsWith('mt5-')).map(o => o.symbol)
+      // 🔴 2026-11-03 (Cleber: "não consegue contabilizar as ordens abertas; se modifico no MetaTrader ela não entende quais
+      // estão abertas"): tudo aqui casava por SÍMBOLO (Map symbol→pos, `symbolsTrackedElsewhere`). Com 2 BTCUSD reais,
+      // uma sobrescrevia a outra no Map (stop/lucro da errada), a 2ª nunca era importada se já existisse qualquer BTCUSD
+      // na tela (até DEMO), e fechar uma das duas deixava a linha fantasma enquanto sobrasse a outra. Agora casa pelo
+      // NÚMERO DA POSIÇÃO na corretora (`pos.id` ↔ `mt5-<id>` ou `brokerPositionId`).
+      const incomingById = new Map<string, any>(positions.map((pos: any) => [String(pos.id), pos]));
+      const brokerIdOf = (o: TradeVisual): string | null =>
+        o.id.startsWith('mt5-') ? o.id.slice(4) : (o.brokerPositionId ? String(o.brokerPositionId) : null);
+      const trackedBrokerIds = new Set(
+        prev.map(brokerIdOf).filter((id): id is string => id != null)
       );
-      const incomingBySymbol = new Map(positions.map((pos: any) => [pos.symbol, pos]));
 
-      // Mantém entradas não-mt5 intocadas; descarta entradas mt5-* cujo
-      // símbolo não existe mais na lista real da corretora (posição fechada).
-      const kept = prev.filter(o => !o.id.startsWith('mt5-') || incomingBySymbol.has(o.symbol));
+      // Descarta entradas mt5-* cujo número de posição não existe mais na corretora (fechada lá). As que vieram do
+      // banco (brokerPositionId) ficam: quem fecha no banco é a reconciliação do motor, e o Realtime traz de volta.
+      const kept = prev.filter(o => !o.id.startsWith('mt5-') || incomingById.has(o.id.slice(4)));
 
       const newOnes: TradeVisual[] = positions
-        .filter((pos: any) => !symbolsTrackedElsewhere.has(pos.symbol) && !kept.some(o => o.id === `mt5-${pos.id}`))
+        .filter((pos: any) => !trackedBrokerIds.has(String(pos.id)))
         .map((pos: any) => {
           const side: 'LONG' | 'SHORT' = pos.type === 'POSITION_TYPE_BUY' ? 'LONG' : 'SHORT';
           const profit = pos.profit || 0;
@@ -4101,9 +4108,11 @@ export function useApexLogic(
 
       // Atualiza preço/lucro corrente das mt5-* já existentes (sem trocar id).
       const updatedKept = kept.map(o => {
-        if (!o.id.startsWith('mt5-')) return o;
-        const pos = incomingBySymbol.get(o.symbol);
+        const brokerId = brokerIdOf(o);
+        if (!brokerId) return o;
+        const pos = incomingById.get(brokerId);
         if (!pos) return o;
+        const isImport = o.id.startsWith('mt5-');
         // 2026-11-03: stop/alvo REAIS também acompanham a corretora (alterados no app ou direto no terminal MT5),
         // exceto enquanto uma alteração feita aqui ainda está a caminho da corretora.
         const editPendingUntil = pendingLiveLevelEditRef.current.get(o.id);
@@ -4113,7 +4122,9 @@ export function useApexLogic(
         const realTp = Number(pos.takeProfit) > 0 && !editPending ? { tp: Number(pos.takeProfit), tpIsReal: true } : {};
         // Volume real também acompanha a corretora (fechamento parcial/reforço feitos direto no MT5).
         const realAmount = Number(pos.volume) > 0 ? { amount: Number(pos.volume) * (getAssetBySymbol(o.symbol)?.lotSize ?? 1) * o.price } : {};
-        return { ...o, ...realSl, ...realTp, ...realAmount, currentPrice: pos.currentPrice, currentProfit: pos.profit || 0 };
+        // Preço/lucro ao vivo: só das importadas (as da plataforma já têm o próprio fluxo de preço).
+        const live = isImport ? { currentPrice: pos.currentPrice, currentProfit: pos.profit || 0 } : {};
+        return { ...o, ...realSl, ...realTp, ...realAmount, ...live };
       });
 
       return [...updatedKept, ...newOnes];
