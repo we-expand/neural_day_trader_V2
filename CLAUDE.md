@@ -15,6 +15,12 @@
 
 ## ▶ COMECE AQUI
 
+**[2026-11-03, tarde] Cleber passou a operar em LIVE (Infinox real): 5 bugs reais corrigidos e commitados — boleta caía no DEMO
+(`executionMode` legado; agora usa `broker_credentials`), mover stop/alvo agora altera no MT5 (`POSITION_MODIFY`), posição importada
+do MT5 com tamanho errado (`volume*100`), fechou no MT5 e não fechou na plataforma (reconciliação do motor só ligava com o
+kill-switch `MT5_LIVE_EXECUTION_ENABLED`, que segue `false`; motor reiniciado), alvos da Extensão de Fibonacci com a largura da base.
+NÃO testado numa posição real ainda: stop/alvo no MT5 e boleta LIVE. Detalhe: [SESSAO_2026-11-03_OPERACAO_LIVE_BOLETA_STOP_MT5_RECONCILIACAO_E_FIBONACCI.md](SESSAO_2026-11-03_OPERACAO_LIVE_BOLETA_STOP_MT5_RECONCILIACAO_E_FIBONACCI.md).**
+
 **[2026-10-26] "Regra das ondas" (estocástico 5m→4H) = bruto zero em 1 ano de BTC/ETH; o lucro manual do Cleber (+US$162, 26 ops, 87% numa compra de 0,4 BTC) veio de gestão (perde pouco, segura o ganho), não da entrada.** Conselho feito; método dele escrito em `llm-active-brain/METODO_OPERACIONAL.md` e lido todo ciclo (motor reiniciado). Stop/alvo/lote ainda são do código (risco 10%): falta stop no topo/fundo do 1H e risco fixo em US$. NEXUS estava mudo (NVIDIA aposentou o Nano em 01/09): padrão trocado p/ Lightning no código, **falta secret + deploy**. Cuidado: `ohlcv_data` grava vela em formação (dados errados). Detalhe: [SESSAO_2026-10-26_ONDAS_DO_CLEBER_CONSELHO_METODO_NA_LLM_RELATORIO_E_NEXUS.md](SESSAO_2026-10-26_ONDAS_DO_CLEBER_CONSELHO_METODO_NA_LLM_RELATORIO_E_NEXUS.md).
 
 **[2026-10-21] "A IA não faz nada" = infra + travas minhas, não estratégia. Conselho, failover NVIDIA, custo corrigido, netting/hedging, e 7 backtests: NENHUM
