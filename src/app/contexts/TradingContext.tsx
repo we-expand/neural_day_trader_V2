@@ -1,3 +1,4 @@
+import { supabase } from '@/lib/supabaseClient';
 import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useApexLogic, TradeVisual, PendingOrderVisual, PortfolioState, AIConfig, HouseStats, EquityPoint } from '../hooks/useApexLogic';
@@ -449,9 +450,37 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     if (!isLiveConnected) return;
     let cancelled = false;
-    const POLL_MS = 5_000;
+    let inFlight = false;
+    let lastPushAt = 0;
+    const POLL_MS = 3_000; // sem push recente (relay fora do ar / migration não rodou): polling REST como antes, só mais rápido
+    const PUSH_FRESH_MS = 8_000; // com push recente o polling vira só rede de segurança e fica quieto
+
+    const applyLiveState = (positions: any[], accountInfo: any) => {
+      logic.syncPositionsFromMT5(positions);
+      if (accountInfo && Number.isFinite(Number(accountInfo.balance))) {
+        logic.updatePortfolioFromMT5({
+          balance: Number(accountInfo.balance),
+          equity: Number(accountInfo.equity ?? accountInfo.balance),
+        });
+      }
+    };
+
+    // 🔴 2026-11-03 (Cleber: "o delay tem que ser muito baixo"): o streaming-relay grava posições/saldo reais em
+    // `live_account_state` a cada mudança que a MetaAPI empurra (<1s do terminal MT5), e o Realtime entrega aqui na hora.
+    // RLS: só o dono da conta enxerga a linha. O polling abaixo só roda quando NÃO chega push (ver PUSH_FRESH_MS).
+    const channel = supabase
+      .channel('live-account-state')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_account_state' }, (payload: any) => {
+        const row = payload?.new;
+        if (cancelled || !row || !Array.isArray(row.positions)) return;
+        lastPushAt = Date.now();
+        applyLiveState(row.positions, row.account_info);
+      })
+      .subscribe();
 
     const pollLivePositions = async () => {
+      if (inFlight || Date.now() - lastPushAt < PUSH_FRESH_MS) return;
+      inFlight = true; // chamadas à corretora levam 1-3s (às vezes 10s+): nunca empilhar uma em cima da outra
       try {
         const { getPositionsOrThrow, getAccountInfoOrThrow } = await import('../services/BrokerClient');
         const [positions, accountInfo] = await Promise.all([
@@ -459,21 +488,21 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
           getAccountInfoOrThrow(),
         ]);
         if (cancelled) return;
-        logic.syncPositionsFromMT5(positions);
-        if (accountInfo) {
-          logic.updatePortfolioFromMT5({
-            balance: accountInfo.balance,
-            equity: accountInfo.equity ?? accountInfo.balance,
-          });
-        }
+        applyLiveState(positions, accountInfo);
       } catch (err) {
         console.warn('[TradingContext] Falha ao reconciliar posições LIVE (mantendo último estado):', err);
+      } finally {
+        inFlight = false;
       }
     };
 
     pollLivePositions();
     const poll = setInterval(pollLivePositions, POLL_MS);
-    return () => { cancelled = true; clearInterval(poll); };
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+      void supabase.removeChannel(channel);
+    };
   }, [isLiveConnected, logic.syncPositionsFromMT5, logic.updatePortfolioFromMT5]);
 
   // Desconectar da corretora real NÃO é o mesmo que `switchToDemoMode` acima:

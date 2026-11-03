@@ -95,7 +95,64 @@ const relayChannel = supabase.channel('turbo-main-channel');
 // já usada em `/mt5-prices`, ver supabase/functions/server/index.ts).
 const previousCloseBySymbol = new Map<string, number>();
 
+// 🔴 2026-11-03 (Cleber, operando LIVE: "o delay entre o MetaTrader e a plataforma tem que ser o menor possível"):
+// posições e saldo reais só chegavam por POLLING REST (`/broker/execute` getPositions, 1-3s por chamada, de 5 em 5s),
+// então ordem aberta/fechada/alterada no MT5 levava de 5 a ~10s pra aparecer. A MetaAPI já PUSHA cada mudança de posição
+// pra esta conexão de streaming; agora o relay grava o estado atual (`terminalState`) na tabela `live_account_state`
+// (migration 20261103_live_account_state.sql) e o app assina via Supabase Realtime (postgres_changes). A tabela tem RLS:
+// só quem tem essa conta em `broker_credentials` enxerga a linha -- NÃO vai pelo canal público de preços, que qualquer
+// cliente com a chave anon consegue ouvir. Se a migration ainda não rodou, o relay só loga 1x e segue (preços seguem).
+const LIVE_STATE_TABLE = 'live_account_state';
+const LIVE_STATE_POSITION_DEBOUNCE_MS = 150; // mudança de posição: quase imediato
+const LIVE_STATE_ACCOUNT_MIN_INTERVAL_MS = 2_000; // equity/saldo mudam a cada tick: no máx. 1 gravação a cada 2s
+let liveStateConnection: { terminalState: { positions: any[]; accountInformation?: any } } | null = null;
+let liveStateTimer: ReturnType<typeof setTimeout> | undefined;
+let liveStateLastFlushAt = 0;
+let liveStateWarned = false;
+let liveStateLastPayload = '';
+
+async function flushLiveState() {
+  liveStateTimer = undefined;
+  if (!liveStateConnection) return;
+  const positions = liveStateConnection.terminalState.positions ?? [];
+  const accountInfo = liveStateConnection.terminalState.accountInformation ?? null;
+  // Só grava se mudou de verdade (equity oscila a cada tick; posição parada não gera tráfego).
+  const signature = JSON.stringify({ positions, accountInfo });
+  if (signature === liveStateLastPayload) return;
+  liveStateLastPayload = signature;
+  liveStateLastFlushAt = Date.now();
+  const { error } = await supabase.from(LIVE_STATE_TABLE).upsert({
+    account_id: METAAPI_ACCOUNT_ID,
+    positions,
+    account_info: accountInfo,
+    updated_at: new Date().toISOString(),
+  });
+  if (error && !liveStateWarned) {
+    liveStateWarned = true;
+    console.error(`[streaming-relay] ⚠️ Não consegui gravar ${LIVE_STATE_TABLE} (migration 20261103_live_account_state.sql rodou?):`, error.message);
+  } else if (!error && liveStateWarned) {
+    liveStateWarned = false;
+    console.log(`[streaming-relay] ✅ ${LIVE_STATE_TABLE} voltou a gravar.`);
+  }
+}
+
+function scheduleLiveStateFlush(kind: 'position' | 'account') {
+  if (liveStateTimer) return;
+  const wait = kind === 'position'
+    ? LIVE_STATE_POSITION_DEBOUNCE_MS
+    : Math.max(LIVE_STATE_POSITION_DEBOUNCE_MS, LIVE_STATE_ACCOUNT_MIN_INTERVAL_MS - (Date.now() - liveStateLastFlushAt));
+  liveStateTimer = setTimeout(() => { void flushLiveState(); }, wait);
+}
+
 class RelaySynchronizationListener extends SynchronizationListener {
+  // Mudanças de posição (abrir/fechar/alterar stop-alvo/volume) -- direto do terminal MT5.
+  async onPositionsReplaced() { scheduleLiveStateFlush('position'); }
+  async onPositionsUpdated() { scheduleLiveStateFlush('position'); }
+  async onPositionUpdated() { scheduleLiveStateFlush('position'); }
+  async onPositionRemoved() { scheduleLiveStateFlush('position'); }
+  async onPositionsSynchronized() { scheduleLiveStateFlush('position'); }
+  async onAccountInformationUpdated() { scheduleLiveStateFlush('account'); }
+
   async onSymbolPriceUpdated(_instanceIndex: string, price: MetatraderSymbolPrice) {
     const unified = brokerSymbolByUnified.get(price.symbol);
     if (!unified) return; // símbolo fora do catálogo real, ignora
@@ -157,10 +214,12 @@ async function main() {
 
   const connection = account.getStreamingConnection();
   connection.addSynchronizationListener(new RelaySynchronizationListener());
+  liveStateConnection = connection as any;
 
   await connection.connect();
   await withTimeoutOuter(connection.waitSynchronized(), CONNECT_TIMEOUT_MS, 'connection.waitSynchronized');
   console.log('[streaming-relay] ✅ Conexão de streaming MetaAPI sincronizada.');
+  scheduleLiveStateFlush('position'); // estado inicial, sem esperar a 1ª mudança
 
   // ⚠️ CORRIGIDO 2026-07-14: o seed do previousClose (candle D1) rodava
   // SEQUENCIAL e SEM TIMEOUT antes de qualquer assinatura de preço — se
