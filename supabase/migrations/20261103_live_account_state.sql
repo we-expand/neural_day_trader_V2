@@ -38,5 +38,14 @@ CREATE POLICY live_account_state_owner_select
   TO authenticated
   USING (public.owns_broker_account(account_id));
 
--- Realtime entrega a linha nova inteira em cada UPSERT.
-ALTER PUBLICATION supabase_realtime ADD TABLE public.live_account_state;
+-- Realtime entrega a linha nova inteira em cada UPSERT. Em bloco próprio: se a tabela já estiver na publicação (ou o
+-- ambiente não tiver permissão), isso não derruba o resto do script -- o SQL Editor desfaz TUDO quando uma linha falha.
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.live_account_state;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Não consegui adicionar live_account_state à publicação supabase_realtime (%). Ative em Database > Replication.', SQLERRM;
+END
+$$;

@@ -127,6 +127,8 @@ async function flushLiveState() {
     account_info: accountInfo,
     updated_at: new Date().toISOString(),
   });
+  // Falhou: esquece a assinatura, senão o mesmo estado seria tratado como "já gravado" e nunca mais tentaria.
+  if (error) liveStateLastPayload = '';
   if (error && !liveStateWarned) {
     liveStateWarned = true;
     console.error(`[streaming-relay] ⚠️ Não consegui gravar ${LIVE_STATE_TABLE} (migration 20261103_live_account_state.sql rodou?):`, error.message);
