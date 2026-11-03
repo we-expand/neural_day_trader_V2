@@ -4073,7 +4073,11 @@ export function useApexLogic(
             id: `mt5-${pos.id || Math.random()}`,
             symbol: pos.symbol,
             side,
-            amount: pos.volume * 100,
+            // 🐛 FIX 2026-11-03 (vídeo do Cleber: compra real de 0,1 lote BTCUSD aparecia como "0.00 lote(s)" e o P&L pulava
+            // entre -0,01 e -9,69): `amount` é NOCIONAL EM US$ no app inteiro (volume × lotSize × preço, igual a
+            // recordLiveManualPosition), mas aqui era `volume × 100` -- 0,1 lote virava "US$10". O P&L local saía em centavos e
+            // a cada 5s a corretora sobrescrevia com o real, daí o pisca-pisca.
+            amount: pos.volume * (getAssetBySymbol(pos.symbol)?.lotSize ?? 1) * pos.openPrice,
             price: pos.openPrice,
             currentPrice: pos.currentPrice,
             currentProfit: profit,
@@ -4107,7 +4111,9 @@ export function useApexLogic(
         if (editPendingUntil != null && !editPending) pendingLiveLevelEditRef.current.delete(o.id);
         const realSl = Number(pos.stopLoss) > 0 && !editPending ? { sl: Number(pos.stopLoss), originalSl: Number(pos.stopLoss), slIsReal: true } : {};
         const realTp = Number(pos.takeProfit) > 0 && !editPending ? { tp: Number(pos.takeProfit), tpIsReal: true } : {};
-        return { ...o, ...realSl, ...realTp, currentPrice: pos.currentPrice, currentProfit: pos.profit || 0 };
+        // Volume real também acompanha a corretora (fechamento parcial/reforço feitos direto no MT5).
+        const realAmount = Number(pos.volume) > 0 ? { amount: Number(pos.volume) * (getAssetBySymbol(o.symbol)?.lotSize ?? 1) * o.price } : {};
+        return { ...o, ...realSl, ...realTp, ...realAmount, currentPrice: pos.currentPrice, currentProfit: pos.profit || 0 };
       });
 
       return [...updatedKept, ...newOnes];
