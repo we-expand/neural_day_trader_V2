@@ -184,7 +184,8 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     const value = Number(stopEditText.replace(',', '.'));
     const result = setOpenPositionStop(posId, value, currentPrice);
     if (result.success) {
-      toast.success('Stop definido', { description: `${symbol} @ ${formatPrice(value, symbol)} — o motor passa a executá-lo` });
+      // posição real: o aviso de sucesso/falha vem quando a corretora (MT5) responder
+      if (!result.live) toast.success('Stop definido', { description: `${symbol} @ ${formatPrice(value, symbol)} — o motor passa a executá-lo` });
       setStopEditId(null);
     } else {
       toast.error('Stop recusado', { description: result.error });
@@ -203,7 +204,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     const value = Number(targetEditText.replace(',', '.'));
     const result = setOpenPositionTarget(posId, value, currentPrice);
     if (result.success) {
-      toast.success('Alvo definido', { description: `${symbol} @ ${formatPrice(value, symbol)} — o motor fecha a posição quando o preço chegar` });
+      if (!result.live) toast.success('Alvo definido', { description: `${symbol} @ ${formatPrice(value, symbol)} — o motor fecha a posição quando o preço chegar` });
       setTargetEditId(null);
     } else {
       toast.error('Alvo recusado', { description: result.error });
@@ -211,7 +212,6 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   }
 
   function renderTargetControl(pos: (typeof symbolPositions)[number]) {
-    if (pos.brokerPositionId) return null; // posição real: alvo é da corretora
     if (targetEditId === pos.id) {
       return (
         <span className="flex items-center gap-1">
@@ -243,7 +243,6 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
   }
 
   function renderStopControl(pos: (typeof symbolPositions)[number]) {
-    if (pos.brokerPositionId) return null; // posição real: stop é da corretora
     if (stopEditId === pos.id) {
       return (
         <span className="flex items-center gap-1">

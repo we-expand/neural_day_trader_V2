@@ -5536,7 +5536,8 @@ export function ChartView({
                 const result = setOpenPositionStopRef.current(order.id, newStop, price);
                 console.log('[ChartView] arraste do STOP: soltou em', newStop, '| preco atual', price, '| resultado', result);
                 if (result.success) {
-                  toast.success('Stop movido', { description: `${order.symbol} @ ${newStop.toFixed(labelPricePrecision)} — o motor passa a executá-lo` });
+                  if (!('live' in result && result.live)) toast.success('Stop movido', { description: `${order.symbol} @ ${newStop.toFixed(labelPricePrecision)} — o motor passa a executá-lo` });
+                  // posição real: o aviso de sucesso/falha vem quando a corretora (MT5) responder
                 } else {
                   toast.error('Stop recusado', { description: result.error });
                   renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders); // volta a linha ao valor real
@@ -5603,7 +5604,7 @@ export function ChartView({
                 const newTp = dragged - (positionLineNudgeRef.current.get(tpId) ?? 0);
                 const result = setOpenPositionTargetRef.current(order.id, newTp, price);
                 if (result.success) {
-                  toast.success('Alvo movido', { description: `${order.symbol} @ ${newTp.toFixed(labelPricePrecision)} — o motor fecha quando o preço chegar` });
+                  if (!('live' in result && result.live)) toast.success('Alvo movido', { description: `${order.symbol} @ ${newTp.toFixed(labelPricePrecision)} — o motor fecha quando o preço chegar` });
                 } else {
                   toast.error('Alvo recusado', { description: result.error });
                   renderPositionOverlays(activeOrders, selectedSymbol, pendingOrders);

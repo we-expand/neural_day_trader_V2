@@ -63,8 +63,8 @@ interface TradingContextType {
     takeProfit?: number;
   }) => { success: boolean; error?: string; tradeId?: string };
   closeManualPosition: (tradeId: string, currentPrice: number) => void;
-  setOpenPositionStop: (tradeId: string, newStop: number, currentPrice: number) => { success: boolean; error?: string };
-  setOpenPositionTarget: (tradeId: string, newTp: number, currentPrice: number) => { success: boolean; error?: string };
+  setOpenPositionStop: (tradeId: string, newStop: number, currentPrice: number) => { success: boolean; error?: string; live?: boolean };
+  setOpenPositionTarget: (tradeId: string, newTp: number, currentPrice: number) => { success: boolean; error?: string; live?: boolean };
   closeLiveManualPosition: (tradeId: string) => Promise<{ success: boolean; error?: string }>;
   pendingOrders: PendingOrderVisual[];
   openManualPendingOrder: (params: {

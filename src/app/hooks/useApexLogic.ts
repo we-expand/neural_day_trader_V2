@@ -3651,10 +3651,51 @@ export function useApexLogic(
   // abaixo), atualiza o estado local e grava em ai_trades (updateTradeStopLoss, auditado pelo
   // ai_trades_audit_log), de onde o motor (enforceMt5StopsAndTargets / watchdog de 5s) passa a executá-lo.
   // Posição REAL (broker_position_id) fica de fora: o stop real é da corretora e não passa por aqui.
-  const setOpenPositionStop = useCallback((tradeId: string, newStop: number, currentPrice: number): { success: boolean; error?: string } => {
+  // 🔴 2026-11-03 (Cleber: "ao mover o stop não consigo alterar -- tem que mudar também no MetaTrader 5"): posição
+  // REAL era recusada aqui ("o stop é definido na corretora") e a importada direto do MT5 (id `mt5-<id>`, sem
+  // brokerPositionId) caía no caminho DEMO, tentava gravar em ai_trades com id inválido e a linha voltava.
+  // Agora as duas mandam POSITION_MODIFY pra corretora. O MT5 grava stop e alvo JUNTOS, então o outro nível vai
+  // com o valor REAL lido da corretora agora -- nunca o da tela, que mostra ±2% de padrão em posição importada sem
+  // stop/alvo (mandar isso criaria na conta real um nível que o usuário nunca pôs). Falhou na corretora: desfaz.
+  const pendingLiveLevelEditRef = useRef<Map<string, number>>(new Map());
+  const resolveBrokerPositionId = (order: TradeVisual): string | null =>
+    order.brokerPositionId ?? (order.id.startsWith('mt5-') ? order.id.slice(4) : null);
+
+  const modifyLivePositionLevels = useCallback(async (
+    order: TradeVisual,
+    brokerId: string,
+    levels: { stopLoss?: number; takeProfit?: number },
+    revert: () => void,
+  ): Promise<boolean> => {
+    const label = levels.stopLoss != null ? 'Stop' : 'Alvo';
+    const value = levels.stopLoss ?? levels.takeProfit;
+    // Segura a reconciliação de 5s (syncPositionsFromMT5) de devolver o nível antigo enquanto a corretora responde.
+    pendingLiveLevelEditRef.current.set(order.id, Date.now() + 30_000);
+    try {
+      const { getPositionsOrThrow, modifyPosition } = await import('../services/BrokerClient');
+      const positions = await getPositionsOrThrow();
+      const real = positions.find((p: any) => String(p.id) === brokerId);
+      if (!real) throw new Error('posição não encontrada na corretora (já fechada?)');
+      const stopLoss = levels.stopLoss ?? (Number(real.stopLoss) > 0 ? Number(real.stopLoss) : undefined);
+      const takeProfit = levels.takeProfit ?? (Number(real.takeProfit) > 0 ? Number(real.takeProfit) : undefined);
+      const result = await modifyPosition(brokerId, stopLoss, takeProfit);
+      if (!result.success) throw new Error(result.error || result.message || 'a corretora recusou a alteração');
+      toastOriginal.success(`${label} alterado na corretora`, { description: `${order.symbol} @ ${value} (MetaTrader 5)` });
+      addLog(`✅ ${label} REAL alterado na corretora: ${order.symbol} @ ${value}`);
+      return true;
+    } catch (err: any) {
+      pendingLiveLevelEditRef.current.delete(order.id);
+      revert();
+      toastOriginal.error(`${label} NÃO foi alterado na corretora`, { description: `${order.symbol}: ${err?.message || 'erro desconhecido'}. A linha voltou ao valor real.` });
+      addLog(`⚠️ ${label} REAL não alterado (${order.symbol}): ${err?.message || err}`);
+      return false;
+    }
+  }, [addLog]);
+
+  const setOpenPositionStop = useCallback((tradeId: string, newStop: number, currentPrice: number): { success: boolean; error?: string; live?: boolean } => {
     const order = activeOrdersRef.current.find((o) => o.id === tradeId);
     if (!order) return { success: false, error: 'Posição não encontrada' };
-    if (order.brokerPositionId) return { success: false, error: 'Posição real: o stop é definido na corretora' };
+    const brokerId = resolveBrokerPositionId(order);
     if (!(newStop > 0) || !(currentPrice > 0)) return { success: false, error: 'Preço de stop inválido' };
     const bad = order.side === 'SHORT' ? newStop <= currentPrice : newStop >= currentPrice;
     if (bad) {
@@ -3667,6 +3708,15 @@ export function useApexLogic(
     }
     const prevSl = { sl: order.sl, originalSl: order.originalSl, slIsReal: order.slIsReal };
     setActiveOrders((prev) => prev.map((o) => (o.id === tradeId ? { ...o, sl: newStop, originalSl: newStop, slIsReal: true } : o)));
+    if (brokerId) {
+      const revert = () => setActiveOrders((prev) => prev.map((o) => (o.id === tradeId ? { ...o, ...prevSl } : o)));
+      void modifyLivePositionLevels(order, brokerId, { stopLoss: newStop }, revert).then((ok) => {
+        // Posição LIVE que também vive em ai_trades: espelha o stop real no banco (o motor e o gráfico leem dali).
+        if (ok && !order.id.startsWith('mt5-')) void persistenceRef.current.updateTradeStopLoss(tradeId, newStop);
+      });
+      addLog(`🛡️ STOP enviado à corretora: ${order.symbol} ${order.side} @ ${newStop}`);
+      return { success: true, live: true };
+    }
     // 2026-10-21: se a gravacao falhar, o poll do servidor devolve o stop antigo (a linha "volta"): avisa e desfaz na hora.
     void persistenceRef.current.updateTradeStopLoss(tradeId, newStop).then((ok) => {
       if (ok) return;
@@ -3676,14 +3726,14 @@ export function useApexLogic(
     });
     addLog(`🛡️ STOP definido: ${order.symbol} ${order.side} @ ${newStop}`);
     return { success: true };
-  }, [addLog]);
+  }, [addLog, modifyLivePositionLevels]);
 
   // 🔴 2026-10-21 (Cleber: "so consigo reposicionar arrastando"): ALVO (take profit) digitado numa posicao DEMO ja aberta, com o mesmo
   // criterio do stop. Venda: alvo ABAIXO do preco atual; compra: ACIMA. Grava em ai_trades.take_profit (auditado) e o motor passa a executa-lo.
-  const setOpenPositionTarget = useCallback((tradeId: string, newTp: number, currentPrice: number): { success: boolean; error?: string } => {
+  const setOpenPositionTarget = useCallback((tradeId: string, newTp: number, currentPrice: number): { success: boolean; error?: string; live?: boolean } => {
     const order = activeOrdersRef.current.find((o) => o.id === tradeId);
     if (!order) return { success: false, error: 'Posição não encontrada' };
-    if (order.brokerPositionId) return { success: false, error: 'Posição real: o alvo é definido na corretora' };
+    const brokerId = resolveBrokerPositionId(order);
     if (!(newTp > 0) || !(currentPrice > 0)) return { success: false, error: 'Preço de alvo inválido' };
     const bad = order.side === 'SHORT' ? newTp >= currentPrice : newTp <= currentPrice;
     if (bad) {
@@ -3694,11 +3744,20 @@ export function useApexLogic(
           : `Alvo de compra precisa ficar ACIMA do preço atual (${currentPrice})`,
       };
     }
+    const prevTp = { tp: order.tp, tpIsReal: order.tpIsReal };
     setActiveOrders((prev) => prev.map((o) => (o.id === tradeId ? { ...o, tp: newTp, tpIsReal: true } : o)));
+    if (brokerId) {
+      const revert = () => setActiveOrders((prev) => prev.map((o) => (o.id === tradeId ? { ...o, ...prevTp } : o)));
+      void modifyLivePositionLevels(order, brokerId, { takeProfit: newTp }, revert).then((ok) => {
+        if (ok && !order.id.startsWith('mt5-')) void persistenceRef.current.updateTradeTakeProfit(tradeId, newTp);
+      });
+      addLog(`🎯 ALVO enviado à corretora: ${order.symbol} ${order.side} @ ${newTp}`);
+      return { success: true, live: true };
+    }
     void persistenceRef.current.updateTradeTakeProfit(tradeId, newTp);
     addLog(`🎯 ALVO definido: ${order.symbol} ${order.side} @ ${newTp}`);
     return { success: true };
-  }, [addLog]);
+  }, [addLog, modifyLivePositionLevels]);
 
   const closeManualPosition = useCallback((tradeId: string, currentPrice: number) => {
     const order = activeOrdersRef.current.find(o => o.id === tradeId);
@@ -4021,6 +4080,9 @@ export function useApexLogic(
             tp: pos.takeProfit || (side === 'LONG' ? pos.openPrice * 1.02 : pos.openPrice * 0.98),
             sl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
             originalSl: pos.stopLoss || (side === 'LONG' ? pos.openPrice * 0.98 : pos.openPrice * 1.02),
+            // 2026-11-03: sem stop/alvo na corretora, os ±2% acima são só referência visual, não nível real.
+            slIsReal: Number(pos.stopLoss) > 0,
+            tpIsReal: Number(pos.takeProfit) > 0,
             leverage: pos.leverage || 1,
             ai_confidence: 75,
             timestamp: pos.time || Date.now(),
@@ -4038,7 +4100,14 @@ export function useApexLogic(
         if (!o.id.startsWith('mt5-')) return o;
         const pos = incomingBySymbol.get(o.symbol);
         if (!pos) return o;
-        return { ...o, currentPrice: pos.currentPrice, currentProfit: pos.profit || 0 };
+        // 2026-11-03: stop/alvo REAIS também acompanham a corretora (alterados no app ou direto no terminal MT5),
+        // exceto enquanto uma alteração feita aqui ainda está a caminho da corretora.
+        const editPendingUntil = pendingLiveLevelEditRef.current.get(o.id);
+        const editPending = editPendingUntil != null && editPendingUntil > Date.now();
+        if (editPendingUntil != null && !editPending) pendingLiveLevelEditRef.current.delete(o.id);
+        const realSl = Number(pos.stopLoss) > 0 && !editPending ? { sl: Number(pos.stopLoss), originalSl: Number(pos.stopLoss), slIsReal: true } : {};
+        const realTp = Number(pos.takeProfit) > 0 && !editPending ? { tp: Number(pos.takeProfit), tpIsReal: true } : {};
+        return { ...o, ...realSl, ...realTp, currentPrice: pos.currentPrice, currentProfit: pos.profit || 0 };
       });
 
       return [...updatedKept, ...newOnes];
