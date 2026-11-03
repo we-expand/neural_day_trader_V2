@@ -1086,7 +1086,7 @@ async function runAgentInner(cycle: number, mt5Session?: Mt5Session, focus?: Wat
         parts.push(
           "Fechamentos automaticos (stop/alvo mecanico): " +
             closed
-              .map((c) => `${c.symbol} ${c.side} (${c.reason === "SL" ? "stop" : "alvo"}, entrada ${c.entryPrice} -> saida ${c.exitPrice})`)
+              .map((c) => `${c.symbol} ${c.side} (${c.reason === "SL" ? "stop" : c.reason === "TIMEOUT" ? "prazo" : "alvo"}, entrada ${c.entryPrice} -> saida ${c.exitPrice})`)
               .join("; ")
         );
       }

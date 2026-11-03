@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config } from "./config.js";
-import { getAtrPercent, getLatestOneMinuteCandle, getOneMinuteCandlesSince } from "./atr.js";
+import { getAtrPercent, getDeepCandles, getLatestOneMinuteCandle, getOneMinuteCandlesSince } from "./atr.js";
 import { estimateCommissionUsd, estimateMidPriceRoundTripCostUsd } from "./commissionModel.js";
 import { recordPlatformCommission } from "./platformCommissionLedger.js";
 
@@ -1018,7 +1018,7 @@ export async function closeMt5Position(params: {
   tradeId: string;
   exitPrice: number;
   reasoning: string;
-  exitReason?: "AI_SIGNAL" | "SL" | "TP";
+  exitReason?: "AI_SIGNAL" | "SL" | "TP" | "TIMEOUT";
 }): Promise<boolean> {
   if (!config.neuralBridgeEnabled) return false;
   try {
@@ -1122,7 +1122,7 @@ export interface StopEnforcementResult {
   tradeId: string;
   symbol: string;
   side: "LONG" | "SHORT";
-  reason: "SL" | "TP";
+  reason: "SL" | "TP" | "TIMEOUT";
   entryPrice: number;
   exitPrice: number;
 }
@@ -1501,6 +1501,23 @@ export async function enforceMt5StopsAndTargets(
     // do usuario fica so com o stop e o alvo que ELE marcou (SL/TP acima continuam valendo). Sem parcial, sem breakeven e sem trailing
     // automaticos. Rollback: MT5_MANUAL_ORDERS_AUTO_MANAGE=true.
     if (process.env.MT5_MANUAL_ORDERS_AUTO_MANAGE !== "true" && (await isManualOrder(pos.id))) continue;
+    // 2026-11-03 GESTAO DO CLEBER (ver config.ts mt5CleberMgmt): saida por prazo. Roda antes do teste de
+    // "a favor" porque vale tambem para posicao parada ou perdendo.
+    if (config.mt5CleberMgmt && !quote.stale) {
+      const heldHours = (Date.now() - new Date(pos.entry_time).getTime()) / 3_600_000;
+      if (Number.isFinite(heldHours) && heldHours >= config.mt5CleberMaxHoldHours) {
+        const okTime = await closeMt5Position({
+          tradeId: pos.id,
+          exitPrice: price,
+          exitReason: "TIMEOUT",
+          reasoning: `Fechamento MECANICO por prazo: ${heldHours.toFixed(1)}h aberta (limite ${config.mt5CleberMaxHoldHours}h), preco real ${price}.`,
+        });
+        if (okTime) {
+          closed.push({ tradeId: pos.id, symbol: pos.symbol, side: pos.side, reason: "TIMEOUT", entryPrice: pos.entry_price, exitPrice: price });
+        }
+        continue;
+      }
+    }
     const favorableMove = pos.side === "LONG" ? price - pos.entry_price : pos.entry_price - price;
     if (favorableMove <= 0) continue; // so mexe no stop quando a operacao esta correndo A FAVOR
 
@@ -1528,10 +1545,38 @@ export async function enforceMt5StopsAndTargets(
     // stop, trava o pior caso em ~$0 movendo o stop pro preco de entrada.
     // So anda pra frente: nunca reaplica se o stop ja esta em (ou alem de)
     // breakeven -- a partir dali quem assume e o trailing continuo abaixo.
+    // 2026-11-03 GESTAO DO CLEBER: 1 reforco em +mt5CleberPyramidAtR (medido no stop ORIGINAL), mesmo lote, com o
+    // stop do conjunto no preco de entrada original -- pior caso do conjunto = 1R do reforco = risco inicial.
+    // So em posicao simulada: com execucao real o reforco exigiria uma 2a ordem na corretora (nao implementado).
+    if (
+      config.mt5CleberMgmt &&
+      !quote.stale &&
+      !(pos.pyramid_adds_count > 0) &&
+      originalStopDistance != null &&
+      originalStopDistance > 0 &&
+      favorableMove >= originalStopDistance * config.mt5CleberPyramidAtR
+    ) {
+      if (pos.broker_position_id) {
+        console.log(`[GESTAO-CLEBER] ${pos.symbol} ${pos.side}: +${config.mt5CleberPyramidAtR}R, mas posicao REAL -- reforco nao implementado na corretora, segue sem reforco`);
+      } else {
+        const addAmountUsd = pos.quantity * (price / pos.entry_price); // mesmo numero de lotes, ao preco de agora
+        const okAdd = await increaseMt5Position({
+          tradeId: pos.id,
+          addAmountUsd,
+          addFillPrice: price,
+          newStopLoss: pos.entry_price,
+          reasoningAppend: `Reforco automatico em +${(favorableMove / originalStopDistance).toFixed(2)}R a ${price}; stop do conjunto no preco de entrada original ${pos.entry_price}.`,
+        });
+        if (okAdd) console.log(`[GESTAO-CLEBER] ✅ ${pos.symbol} ${pos.side}: reforco a ${price}, stop do conjunto -> ${pos.entry_price}`);
+        continue; // proximo tick ja le preco medio e stop novos
+      }
+    }
+
     const alreadyAtBreakeven = pos.side === "LONG" ? pos.stop_loss >= pos.entry_price : pos.stop_loss <= pos.entry_price;
     if (!alreadyAtBreakeven) {
       const stopDistance = Math.abs(pos.entry_price - pos.stop_loss);
-      if (favorableMove >= stopDistance * config.mt5BreakevenTriggerR) {
+      const breakevenTriggerR = config.mt5CleberMgmt ? config.mt5CleberBreakevenR : config.mt5BreakevenTriggerR;
+      if (favorableMove >= stopDistance * breakevenTriggerR) {
         const ok = await updateStopLoss(pos.id, pos.entry_price);
         if (ok) {
           breakevens.push({ tradeId: pos.id, symbol: pos.symbol, side: pos.side, entryPrice: pos.entry_price, oldStopLoss: pos.stop_loss });
@@ -1545,6 +1590,21 @@ export async function enforceMt5StopsAndTargets(
     // preço, sempre a uma distância ATR recalculada a cada ciclo (mesmo
     // espírito do stop de abertura em tools.ts). Só protege mais lucro, nunca
     // afrouxa -- só move se o novo nível for MAIS protetor que o atual.
+    // 2026-11-03 GESTAO DO CLEBER: o stop segue a ESTRUTURA do 1H (fundo/topo das ultimas velas fechadas),
+    // nao o ATR. So aperta, nunca afrouxa.
+    if (config.mt5CleberMgmt) {
+      const c1h = await getDeepCandles(pos.symbol, "1H").catch(() => null);
+      if (!c1h || c1h.length < config.mt5CleberTrailCandles + 1) continue;
+      const closed1h = c1h.slice(-(config.mt5CleberTrailCandles + 1), -1); // descarta a vela em formacao
+      const structStop = pos.side === "LONG"
+        ? Math.min(...closed1h.map((c) => c.low)) * (1 - config.mt5AsymStopBufferPct)
+        : Math.max(...closed1h.map((c) => c.high)) * (1 + config.mt5AsymStopBufferPct);
+      const tighter = pos.side === "LONG" ? structStop > pos.stop_loss && structStop < price : structStop < pos.stop_loss && structStop > price;
+      if (!tighter) continue;
+      const okTrail = await updateStopLoss(pos.id, structStop);
+      if (okTrail) trails.push({ tradeId: pos.id, symbol: pos.symbol, side: pos.side, oldStopLoss: pos.stop_loss, newStopLoss: structStop });
+      continue;
+    }
     const trailPct = await getAtrPercent(pos.symbol);
     if (trailPct == null) continue; // sem ATR real agora -- mantem o stop onde esta, tenta de novo no proximo ciclo
     // 🔴 2026-08-30: multiplicador dedicado (mt5TrailAtrMultiplier), mais

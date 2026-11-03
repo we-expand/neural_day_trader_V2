@@ -7,6 +7,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { assertOnTestnet, getBalanceEth } from "./wallet.js";
 import { runAgent, type Mt5Session } from "./agent.js";
+import { nyOpenTick } from "./nyOpenTrade.js";
 import { config } from "./config.js";
 import { getBalanceUsd } from "./economy.js";
 import { getOrCreateMt5Session, listEligibleMt5Sessions, getUserTradingConfig, enforceMt5StopsAndTargets, listMt5OpenPositions, closeMt5Position, openMt5Position, type Mt5OpenPosition } from "./neuralBridge.js";
@@ -135,6 +136,19 @@ async function stopWatchdogTick(): Promise<void> {
   } finally {
     stopWatchdogBusy = false;
   }
+}
+
+// 2026-11-03: operacao da abertura de NY (nyOpenTrade.ts) no seu proprio timer, como o watchdog de stop --
+// nao depende do ciclo do LLM (que pode levar minutos) para pegar o rompimento.
+let nyOpenBusy = false;
+function startNyOpenWatch(): void {
+  setInterval(() => {
+    if (nyOpenBusy || stopWatchdogSessions.length === 0) return;
+    nyOpenBusy = true;
+    void nyOpenTick(stopWatchdogSessions).finally(() => {
+      nyOpenBusy = false;
+    });
+  }, 5_000);
 }
 
 function startStopWatchdog(): void {
@@ -587,6 +601,7 @@ async function main() {
   await assertOnTestnet();
   startStreamingTicks(); // opt-in (STREAMING_TICKS_ENABLED=true), cai pro REST se o tick envelhecer
   if (config.mt5TradingEnabled) startStopWatchdog();
+  if (config.mt5TradingEnabled && config.mt5NyOpenTradeEnabled) startNyOpenWatch(); // operacao da abertura de NY (nyOpenTrade.ts)
   if (process.env.WATCHER_ENABLED !== "false") startMarketWatcher(drainTriggers); // vigia mecanico, so observador (watcher.ts)
   startDeskOutcomeJob(); // mede o desfecho (alvo ou stop primeiro) das decisoes da mesa -> aprendizado continuo (deskStore.ts)
   startSpreadCollector(); // spread real medido -> custo (research/COST_SOURCE_OF_TRUTH.md)

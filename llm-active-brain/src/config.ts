@@ -276,6 +276,23 @@ export const config = {
   mt5AsymStopBufferPct: Number(process.env.MT5_ASYM_STOP_BUFFER_PCT ?? 0.0003),
   mt5AsymMaxStopPct: Number(process.env.MT5_ASYM_MAX_STOP_PCT ?? 0.03),
   mt5AsymMaxCostFracOfRisk: Number(process.env.MT5_ASYM_MAX_COST_FRAC_OF_RISK ?? 0.35),
+  // 2026-11-03 (Cleber + conselho): operacao da abertura de NY -- ver nyOpenTrade.ts. Rollback: MT5_NY_OPEN_TRADE=false.
+  mt5NyOpenTradeEnabled: (process.env.MT5_NY_OPEN_TRADE ?? "false") === "true",
+  mt5NyOpenRiskUsd: Number(process.env.MT5_NY_OPEN_RISK_USD ?? 15),
+  mt5NyOpenBreakBufferPct: Number(process.env.MT5_NY_OPEN_BREAK_BUFFER_PCT ?? 0.0003),
+  mt5NyOpenMaxSpreadPct: Number(process.env.MT5_NY_OPEN_MAX_SPREAD_PCT ?? 0.0015),
+  mt5NyOpenStartIso: process.env.MT5_NY_OPEN_START_ISO ?? "2026-11-04T00:00:00Z",
+  mt5NyOpenRoundSize: Math.max(1, Math.floor(Number(process.env.MT5_NY_OPEN_ROUND_SIZE ?? 10)) || 10),
+  mt5NyOpenMaxLossUsd: Number(process.env.MT5_NY_OPEN_MAX_LOSS_USD ?? 60),
+  // 2026-11-03 GESTAO DO CLEBER (conselho): nas entradas da IA (nao nas manuais), breakeven so em
+  // mt5CleberBreakevenR, 1 reforco em +1R com o stop do conjunto no preco de entrada original (risco total
+  // nunca passa do inicial), trailing pelo fundo/topo das ultimas mt5CleberTrailCandles velas FECHADAS de 1H
+  // (no lugar do ATR) e saida por prazo em mt5CleberMaxHoldHours. Rollback: MT5_CLEBER_MGMT=false.
+  mt5CleberMgmt: (process.env.MT5_CLEBER_MGMT ?? "false") === "true",
+  mt5CleberBreakevenR: Number(process.env.MT5_CLEBER_BREAKEVEN_R ?? 2),
+  mt5CleberPyramidAtR: Number(process.env.MT5_CLEBER_PYRAMID_AT_R ?? 1),
+  mt5CleberTrailCandles: Math.max(1, Math.floor(Number(process.env.MT5_CLEBER_TRAIL_CANDLES ?? 3)) || 3),
+  mt5CleberMaxHoldHours: Number(process.env.MT5_CLEBER_MAX_HOLD_HOURS ?? 48),
   // Teto DURO de risco por trade (como fração do saldo real) -- se o lote
   // mínimo do símbolo (MIN_LOTS/LOT_SIZE em assetBasket.ts) força um risco
   // maior que isso mesmo no menor lote possível, open_position BLOQUEIA a
