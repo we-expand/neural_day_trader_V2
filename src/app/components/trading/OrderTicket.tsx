@@ -15,7 +15,6 @@ import {
   createStopSellOrder,
   createStopLimitBuyOrder,
   createStopLimitSellOrder,
-  getBrokerCredentialsStatus,
 } from '../../services/BrokerClient';
 import { LIVE_ALERT_DISCLAIMER } from '../../modules/liveAlertStage/useLiveAlertStage';
 import { useAnimatedNumber } from '../../hooks/useAnimatedNumber';
@@ -73,7 +72,7 @@ const ORDER_TYPE_TABS: { type: OrderType; label: string; icon: typeof Zap }[] = 
  * já valida risco fail-closed no servidor.
  */
 export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
-  const { executionMode, portfolio, activeOrders, orderHistory, aiConfig, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, setOpenPositionStop, setOpenPositionTarget, closeLiveManualPosition, setSelectedAsset, pendingOrders, cancelManualPendingOrder, updateManualPendingOrder } = useTradingContext();
+  const { isLiveConnected, isLiveStatusKnown, portfolio, activeOrders, orderHistory, aiConfig, openManualPosition, recordLiveManualPosition, openManualPendingOrder, closeManualPosition, setOpenPositionStop, setOpenPositionTarget, closeLiveManualPosition, setSelectedAsset, pendingOrders, cancelManualPendingOrder, updateManualPendingOrder } = useTradingContext();
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
 
   // 🆕 2026-09-14 (pedido do Cleber: "modo edição de ordem pendurada") —
@@ -355,15 +354,16 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     }
   }, [orderType, currentPrice]);
 
-  const [brokerConfigured, setBrokerConfigured] = useState<boolean | null>(null);
-  React.useEffect(() => {
-    if (executionMode !== 'LIVE') return;
-    let cancelled = false;
-    getBrokerCredentialsStatus()
-      .then((status) => { if (!cancelled) setBrokerConfigured(status.configured); })
-      .catch(() => { if (!cancelled) setBrokerConfigured(false); });
-    return () => { cancelled = true; };
-  }, [executionMode]);
+  // 🔴 FIX 2026-11-03 (Cleber: "abri uma posição no modo live pela
+  // plataforma e ela não abriu no MetaTrader"): a boleta decidia DEMO/LIVE
+  // pelo `executionMode` do contexto -- campo legado que nada no client seta
+  // mais pra 'LIVE' (ver TradingContext.tsx). Com a corretora conectada e o
+  // Header mostrando LIVE, toda ordem caía no ramo DEMO: só gravava em
+  // `ai_trades` da sessão DEMO, nunca chegava no MT5. O modo agora vem da
+  // mesma fonte de verdade do Header e do motor (`broker_credentials`).
+  // Enquanto essa resposta não chega, a ordem fica bloqueada -- melhor travar
+  // 1-2s do que mandar pro DEMO uma ordem que o usuário acha que é real.
+  const executionMode: 'DEMO' | 'LIVE' = isLiveConnected ? 'LIVE' : 'DEMO';
 
   const step = asset?.minLot ?? 0.01;
   const volumeValid = asset ? volume > 0 && volume >= asset.minLot && volume <= asset.maxLot : volume > 0;
@@ -449,7 +449,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     return asset.leverage > 0 ? notional / asset.leverage : notional;
   }, [currentPrice, asset, volume]);
 
-  const brokerBlocked = executionMode === 'LIVE' && brokerConfigured !== true;
+  const brokerBlocked = !isLiveStatusKnown;
   const canTrade = currentPrice != null && volumeValid && !submitting && !brokerBlocked && !demoStopLimitUnsupported;
 
   // Motivo visível do bloqueio — nunca mais um botão desabilitado sem explicação
@@ -468,7 +468,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
     : !volumeValid
       ? `Volume fora do intervalo permitido (${asset ? `${asset.minLot}–${asset.maxLot}` : '> 0'})`
       : brokerBlocked
-        ? 'Conecte uma corretora para operar em LIVE'
+        ? 'Verificando conexão com a corretora…'
         : demoStopLimitUnsupported
           ? 'Stop Limit indisponível em DEMO'
           : null;
@@ -1167,7 +1167,7 @@ export function OrderTicket({ symbol, currentPrice }: OrderTicketProps) {
         {brokerBlocked && (
           <div className="mb-3 flex items-start gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 relative z-10">
             <Link2Off className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>Nenhuma corretora conectada. Conecte uma conta MetaAPI nas configurações para operar em modo LIVE.</span>
+            <span>Verificando conexão com a corretora… a ordem libera assim que soubermos se é LIVE ou DEMO.</span>
           </div>
         )}
         {executionMode === 'LIVE' && (

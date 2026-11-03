@@ -104,6 +104,9 @@ interface TradingContextType {
   // execução real virou dinâmica por usuário — ver liveExecution.ts). Único
   // lugar que faz esse polling; Header/AITrader consomem daqui.
   isLiveConnected: boolean;
+  // true depois da 1ª resposta real de `broker_credentials` -- antes disso
+  // `isLiveConnected=false` significa "ainda não sei", não "DEMO".
+  isLiveStatusKnown: boolean;
   isDisconnectingLive: boolean;
   disconnectLive: () => Promise<void>;
 
@@ -404,6 +407,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   // direto `broker_credentials`, mesma fonte que o Header já usava sozinho
   // (agora centralizado aqui pra não duplicar polling/lógica divergente).
   const [isLiveConnected, setIsLiveConnected] = useState(false);
+  const [isLiveStatusKnown, setIsLiveStatusKnown] = useState(false);
   const [isDisconnectingLive, setIsDisconnectingLive] = useState(false);
 
   useEffect(() => {
@@ -411,7 +415,10 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     const checkConnected = async () => {
       try {
         const status = await getBrokerCredentialsStatus();
-        if (!cancelled) setIsLiveConnected(!!status.configured);
+        if (!cancelled) {
+          setIsLiveConnected(!!status.configured);
+          setIsLiveStatusKnown(true);
+        }
       } catch {
         // falha transitória -- mantém o último estado conhecido.
       }
@@ -585,6 +592,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     setExecutionMode: logic.setExecutionMode,
     switchToDemoMode,
     isLiveConnected,
+    isLiveStatusKnown,
     isDisconnectingLive,
     disconnectLive,
 
@@ -675,6 +683,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.setExecutionMode,
     switchToDemoMode,
     isLiveConnected,
+    isLiveStatusKnown,
     isDisconnectingLive,
     disconnectLive,
     toggleAI,
