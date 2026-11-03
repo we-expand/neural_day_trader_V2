@@ -1018,7 +1018,7 @@ export async function closeMt5Position(params: {
   tradeId: string;
   exitPrice: number;
   reasoning: string;
-  exitReason?: "AI_SIGNAL" | "SL" | "TP" | "TIMEOUT";
+  exitReason?: "AI_SIGNAL" | "SL" | "TP" | "TIMEOUT" | "MANUAL";
 }): Promise<boolean> {
   if (!config.neuralBridgeEnabled) return false;
   try {

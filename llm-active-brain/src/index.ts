@@ -240,7 +240,8 @@ async function liveReconcileTick(): Promise<void> {
             `FECHADA automaticamente pela reconciliacao -- posicao real (${trade.broker_position_id}) nao existe mais na corretora ` +
             `(provavel Stop Out por margem esgotada, ou fechamento manual direto no MT5, fora da plataforma). Preco de saida = ultimo tick real ` +
             `conhecido no momento da deteccao, nao o preco exato do fechamento na corretora (MetaAPI nao expoe historico de deals nesta integracao).`,
-          exitReason: "SL",
+          // Sem stop/alvo gravado nao foi o stop nem o alvo que fechou: foi o usuario no MT5 (ou Stop Out por margem).
+          exitReason: trade.stop_loss || trade.take_profit ? "SL" : "MANUAL",
         });
         if (closed) {
           console.warn(`[live-reconcile] 🔴 Posicao real ${trade.broker_position_id} (${trade.symbol}) sumiu da corretora -- fechada no banco (Stop Out/externo).`);
@@ -249,7 +250,9 @@ async function liveReconcileTick(): Promise<void> {
         }
       }
 
-      if (unexpectedOnBroker.length > 0) {
+      // Adotar posicao desconhecida so com o kill-switch ligado (comportamento original). Desligado, a reconciliacao so
+      // fecha o que sumiu da corretora; a posicao aberta direto no MT5 continua aparecendo pela importacao do front.
+      if (config.mt5LiveExecutionEnabled && unexpectedOnBroker.length > 0) {
         // 🔴 2026-09-11 (pedido do Cleber, ao vivo: "isso tem que ser
         // instantaneo" -- antes disto, uma ordem aberta manualmente por ele
         // DIRETO no terminal MT5 so entrava no Dashboard/ai_trades depois de
@@ -605,11 +608,16 @@ async function main() {
   if (process.env.WATCHER_ENABLED !== "false") startMarketWatcher(drainTriggers); // vigia mecanico, so observador (watcher.ts)
   startDeskOutcomeJob(); // mede o desfecho (alvo ou stop primeiro) das decisoes da mesa -> aprendizado continuo (deskStore.ts)
   startSpreadCollector(); // spread real medido -> custo (research/COST_SOURCE_OF_TRUTH.md)
+  // 🔴 2026-11-03 (Cleber, operando LIVE: "fechei no MetaTrader e nao fechou na plataforma"): a reconciliacao so
+  // era ligada junto com o kill-switch MT5_LIVE_EXECUTION_ENABLED -- que continua false de proposito (ele libera
+  // ordens REAIS do proprio motor). Resultado: ordem manual do usuario aberta pela boleta em LIVE, fechada no MT5,
+  // ficava OPEN no banco pra sempre. A reconciliacao so LE e sincroniza (nunca abre ordem), entao roda sempre;
+  // com o kill-switch desligado ela so FECHA no banco o que sumiu da corretora (ver liveReconcileTick).
+  startLiveReconcileWatchdog();
   if (config.mt5LiveExecutionEnabled) {
     // Kill-switch mestre ligado -- a partir daqui, QUALQUER usuario que
     // conectar broker_credentials pela UI passa a operar com dinheiro real
     // no proximo ciclo, sem precisar de novo restart (ver liveExecution.ts).
-    startLiveReconcileWatchdog();
     console.warn(
       "[live] ⚠️ MT5_LIVE_EXECUTION_ENABLED=true -- usuarios com broker conectado podem ter ordens REAIS enviadas com dinheiro de verdade na Infinox."
     );
