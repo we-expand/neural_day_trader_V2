@@ -468,15 +468,23 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     // 🔴 2026-11-03 (Cleber: "o delay tem que ser muito baixo"): o streaming-relay grava posições/saldo reais em
     // `live_account_state` a cada mudança que a MetaAPI empurra (<1s do terminal MT5), e o Realtime entrega aqui na hora.
     // RLS: só o dono da conta enxerga a linha. O polling abaixo só roda quando NÃO chega push (ver PUSH_FRESH_MS).
-    const channel = supabase
-      .channel('live-account-state')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_account_state' }, (payload: any) => {
-        const row = payload?.new;
-        if (cancelled || !row || !Array.isArray(row.positions)) return;
-        lastPushAt = Date.now();
-        applyLiveState(row.positions, row.account_info);
-      })
-      .subscribe();
+    // Nome único por execução do efeito + try/catch: com o mesmo nome, uma re-execução do efeito (as deps mudam) pegava o canal
+    // antigo ainda não removido e `.on()` lançava "cannot add callbacks after subscribe()", derrubando o efeito inteiro --
+    // inclusive o polling de reserva, e nenhuma posição aparecia. O push nunca pode impedir o polling de rodar.
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      channel = supabase
+        .channel(`live-account-state-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'live_account_state' }, (payload: any) => {
+          const row = payload?.new;
+          if (cancelled || !row || !Array.isArray(row.positions)) return;
+          lastPushAt = Date.now();
+          applyLiveState(row.positions, row.account_info);
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('[TradingContext] Push de posições indisponível, usando só polling:', err);
+    }
 
     const pollLivePositions = async () => {
       if (inFlight || Date.now() - lastPushAt < PUSH_FRESH_MS) return;
@@ -501,7 +509,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     return () => {
       cancelled = true;
       clearInterval(poll);
-      void supabase.removeChannel(channel);
+      if (channel) void supabase.removeChannel(channel);
     };
   }, [isLiveConnected, logic.syncPositionsFromMT5, logic.updatePortfolioFromMT5]);
 
