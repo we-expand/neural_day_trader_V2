@@ -222,6 +222,8 @@ async function main() {
   await withTimeoutOuter(connection.waitSynchronized(), CONNECT_TIMEOUT_MS, 'connection.waitSynchronized');
   console.log('[streaming-relay] ✅ Conexão de streaming MetaAPI sincronizada.');
   scheduleLiveStateFlush('position'); // estado inicial, sem esperar a 1ª mudança
+  // Batimento: a cada 20s regrava mesmo sem mudança, pra `updated_at` provar que o relay está vivo (a tela confia na linha enquanto ela é recente).
+  setInterval(() => { liveStateLastPayload = ''; void flushLiveState(); }, 20_000);
 
   // ⚠️ CORRIGIDO 2026-07-14: o seed do previousClose (candle D1) rodava
   // SEQUENCIAL e SEM TIMEOUT antes de qualquer assinatura de preço — se

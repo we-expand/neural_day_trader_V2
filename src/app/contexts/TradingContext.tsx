@@ -487,9 +487,23 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const pollLivePositions = async () => {
-      if (inFlight || Date.now() - lastPushAt < PUSH_FRESH_MS) return;
+      if (inFlight) return;
       inFlight = true; // chamadas à corretora levam 1-3s (às vezes 10s+): nunca empilhar uma em cima da outra
       try {
+        // 1) Lê a linha do relay direto do banco (~100ms). Reaplica SEMPRE, mesmo sem mudança: outro código pode ter apagado as
+        // posições da tela (o push só dispara quando algo muda no MT5, então nada as repunha). Linha recente = relay vivo.
+        const { data: liveRow } = await supabase
+          .from('live_account_state')
+          .select('positions, account_info, updated_at')
+          .limit(1)
+          .maybeSingle();
+        if (cancelled) return;
+        if (liveRow && Array.isArray(liveRow.positions) && Date.now() - new Date(liveRow.updated_at).getTime() < 90_000) {
+          lastPushAt = Date.now();
+          applyLiveState(liveRow.positions, liveRow.account_info);
+          return;
+        }
+        // 2) Relay fora do ar / linha velha: REST na corretora, como antes.
         const { getPositionsOrThrow, getAccountInfoOrThrow } = await import('../services/BrokerClient');
         const [positions, accountInfo] = await Promise.all([
           getPositionsOrThrow(),
