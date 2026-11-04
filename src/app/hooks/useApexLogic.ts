@@ -801,7 +801,9 @@ export function useApexLogic(
         const parsed: ApexLogicState = JSON.parse(saved);
         setIsActive(false); // Always start inactive
         setIsPaused(parsed.isPaused || false);
-        setActiveOrders(parsed.activeOrders || []);
+        // 2026-11-03: posições `mt5-*` são importadas da corretora a cada sincronização; restaurá-las do cache mostrava
+        // posições já fechadas (lixo do código antigo) por ~3s até a 1ª sincronização limpar.
+        setActiveOrders((parsed.activeOrders || []).filter((o: any) => !String(o?.id ?? '').startsWith('mt5-')));
         setPortfolio(parsed.portfolio || INITIAL_STATE.portfolio);
         setOrderHistory(parsed.orderHistory || []);
         setHouseStats(parsed.houseStats || INITIAL_STATE.houseStats);
