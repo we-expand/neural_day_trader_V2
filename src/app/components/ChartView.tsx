@@ -1274,6 +1274,17 @@ const restorePointsFromSnapshot = (points: any, list: any[]): any => {
       const first = list[0].timestamp;
       if (ts > last) return { dataIndex: list.length - 1 + Math.round((ts - last) / ms), value: p.value };
       if (ts < first) return { dataIndex: Math.round((ts - first) / ms), value: p.value };
+      // 🔴 2026-11-03 (Cleber: "o Fibonacci inverte, muda de lado sozinho quando mudo o tempo gráfico"): dentro do range deixávamos a
+      // klinecharts converter `timestamp`→candle sozinha, e num tempo gráfico diferente (o instante raramente cai exatamente na abertura de
+      // um candle) ela podia achar o candle vizinho, trocando a ordem A/B/C. Agora o candle é achado aqui, de forma determinística: o
+      // candle que CONTÉM o instante (maior abertura <= ts).
+      let lo = 0;
+      let hi = list.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (list[mid].timestamp <= ts) lo = mid; else hi = mid - 1;
+      }
+      return { dataIndex: lo, value: p.value };
     }
     return { timestamp: ts, value: p?.value };
   });
