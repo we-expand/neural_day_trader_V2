@@ -486,11 +486,32 @@ function isOffFromHistory(price: number, referenceClose: number): boolean {
   return referenceClose > 0 && Math.abs(price - referenceClose) / referenceClose > MAX_TICK_DEVIATION_FROM_HISTORY;
 }
 
-// Fechamento do pregão anterior: close da última vela antes de 00:00 UTC de hoje.
+// Fechamento do pregão anterior.
+// 🐛 FIX 2026-11-05 (Cleber: "o mercado zerou e a nossa plataforma ainda mostra o percentual de ontem"): a regra
+// antiga era "close da última vela antes de 00:00 UTC de hoje", mas os CFDs de índice (SPX500, US2000, NAS100...)
+// viram o dia por volta de 23:00 UTC — depois da virada, a referência continuava sendo o fechamento de ANTEONTEM
+// da sessão nova. Agora a referência é o close da última vela antes da pausa de sessão mais recente (um buraco
+// maior que 3x o passo normal entre velas, dentro das últimas 36h): cobre a pausa diária e o fim de semana em
+// qualquer fuso. Sem nenhuma pausa (cripto 24/7), mantém a regra de 00:00 UTC.
 function getPreviousSessionClose(candles: { timestamp: number; close: number }[]): number | null {
+  const n = candles.length;
+  if (n >= 3) {
+    const steps: number[] = [];
+    for (let i = Math.max(1, n - 60); i < n; i++) steps.push(candles[i].timestamp - candles[i - 1].timestamp);
+    steps.sort((a, b) => a - b);
+    const typicalStep = steps[Math.floor(steps.length / 2)] || 0;
+    const minGap = Math.max(3 * typicalStep, 30 * 60_000);
+    const horizon = Date.now() - 36 * 3_600_000;
+    for (let i = n - 1; i >= 1; i--) {
+      if (candles[i - 1].timestamp < horizon) break;
+      if (candles[i].timestamp - candles[i - 1].timestamp >= minGap) {
+        return candles[i - 1].close > 0 ? candles[i - 1].close : null;
+      }
+    }
+  }
   const todayStartUtc = new Date();
   todayStartUtc.setUTCHours(0, 0, 0, 0);
-  for (let i = candles.length - 1; i >= 0; i--) {
+  for (let i = n - 1; i >= 0; i--) {
     if (candles[i].timestamp < todayStartUtc.getTime()) return candles[i].close > 0 ? candles[i].close : null;
   }
   return null;
