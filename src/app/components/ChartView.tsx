@@ -4815,11 +4815,11 @@ export function ChartView({
 
       const elapsedSinceOpen = Date.now() - anchor;
       if (elapsedSinceOpen >= interval) {
-        // Já deveria ter virado, mas o próximo candle real ainda não chegou
-        // (fetch periódico/streaming) — nunca fabricar o próximo boundary por
-        // adivinhação: trava em 00:00 até a âncora real confirmar a virada,
-        // em vez de contar pra frente sobre um período que ainda não existe.
-        setCandleCountdown(0);
+        // 🐛 FIX 2026-11-05 (Cleber: "o cronômetro continua parado"): antes travava em 00:00 até o servidor
+        // trazer a vela nova — com a MetaAPI fora (504 por horas) isso deixava o cronômetro morto. As velas
+        // vivem numa grade fixa (abertura da âncora real + N × intervalo), a mesma que o tick ao vivo já usa
+        // pra virar a vela localmente. Segue contando sobre essa grade; o fetch real reancora quando voltar.
+        setCandleCountdown(interval - (elapsedSinceOpen % interval));
         return;
       }
       setCandleCountdown(interval - elapsedSinceOpen);
