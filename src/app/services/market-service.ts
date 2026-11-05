@@ -314,6 +314,21 @@ export async function fetchCandlesCacheOnly(symbol: string, timeframe: string, m
       .sort((a, b) => a.timestamp - b.timestamp);
 
     if (candles.length < 20) return [];
+
+    // 🐛 FIX 2026-11-05 (Cleber: "o sinal do gráfico do S&P 500 está vindo errado"): o cache do SPX500 15m parou
+    // de ser gravado em 27/10 19:45Z e mesmo assim vencia a corrida da 1ª pintura — o gráfico mostrava velas de
+    // 9 dias atrás (~7.700) e as barras ao vivo de hoje (~7.609) coladas na ponta, com um buraco no meio. Cache só
+    // serve se estiver em dia: mesma regra da busca ao vivo (até 3 barras de atraso), com folga de fim de semana
+    // (sábado, domingo e segunda até 02:00Z aceitam até 3,5 dias, pra cobrir o fechamento de sexta).
+    const lastTs = candles[candles.length - 1].timestamp;
+    const nowDate = new Date();
+    const utcDay = nowDate.getUTCDay();
+    const weekendWindow = utcDay === 6 || utcDay === 0 || (utcDay === 1 && nowDate.getUTCHours() < 2);
+    const maxAgeMs = Math.max(intervalMs * 3, weekendWindow ? 3.5 * 86_400_000 : 0);
+    if (Date.now() - lastTs > maxAgeMs) {
+      console.warn(`[MarketService] ⚠️ Cache ohlcv_data de ${mt5Symbol} ${mt5Timeframe} desatualizado (última barra ${new Date(lastTs).toISOString()}) — ignorado, esperando a busca ao vivo.`);
+      return [];
+    }
     console.log(`[MarketService] 🗄️ Cache ohlcv_data: ${candles.length} candles de ${mt5Symbol} ${mt5Timeframe} (última barra ${new Date(candles[candles.length - 1].timestamp).toISOString()})`);
     return candles;
   } catch (err) {
