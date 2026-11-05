@@ -6374,11 +6374,17 @@ export function ChartView({
           // até 5 anos) é buscado logo depois, em 2º plano, sem bloquear a 1ª
           // exibição — ver `extendHistoryInBackground` mais abaixo, disparado só
           // quando `isFastFirstPaint` é true.
+          // 🐛 FIX 2026-11-05 (Cleber: "o gráfico está parado, o cronômetro não anda"): o auto-refresh de 30s
+          // pedia a janela INTEIRA (~2.000 velas, 2 páginas na MetaAPI = 26 a 119s medidos ao vivo) e o fetch
+          // aborta aos 30s — então nenhum refresh terminava, a âncora do cronômetro nunca avançava e a vela
+          // nova nunca vinha do servidor. Agora, com o histórico já carregado, o refresh pede só as ~60 velas
+          // mais recentes (1 chamada leve) e emenda no histórico que já está na tela (ver merge abaixo).
+          const isLightRefresh = !isFastFirstPaint && retryAttempt === 0 && hasAppliedFullDatasetRef.current && chartDataRef.current.length > 0;
           const livePromise = fetchCandles(
             selectedSymbol,
             timeframe,
             200,
-            isFastFirstPaint ? FAST_FIRST_PAINT_MAX_CANDLES : undefined
+            isFastFirstPaint ? FAST_FIRST_PAINT_MAX_CANDLES : (isLightRefresh ? 60 : undefined)
           );
           // 🗄️ 2026-10-22 (Cleber: "EURUSD demora demais pra abrir o gráfico"): na 1ª pintura de forex/índice/commodity,
           // lê o CACHE de candles fechados (ohlcv_data, ~0,3s) em paralelo com a busca ao vivo e pinta com o que chegar
@@ -6402,6 +6408,12 @@ export function ChartView({
             candles = await livePromise;
           }
           if (cancelled) return;
+          if (isLightRefresh && candles.length > 0 && chartDataRef.current.length > 0) {
+            // Emenda: velas antigas já carregadas (anteriores à 1ª vela nova) + velas recentes do servidor.
+            const firstFresh = candles[0].timestamp;
+            const older = chartDataRef.current.filter((c) => c.timestamp < firstFresh);
+            candles = [...(older as unknown as CandleData[]), ...candles];
+          }
           if (paintedFromCache) {
             console.log('[ChartView] 🗄️ 1ª pintura pelo CACHE (', candles.length, 'candles) — busca ao vivo segue em paralelo');
           }
