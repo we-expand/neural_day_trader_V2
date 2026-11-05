@@ -1,5 +1,6 @@
 import { symbolMappingService } from './SymbolMappingService';
 import { supabase } from '@/lib/supabaseClient';
+import { isMarketOpen } from '@/app/utils/marketHours';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 const MT5_CANDLES_HISTORY_URL = `https://${projectId}.supabase.co/functions/v1/server/mt5-candles-history`;
@@ -321,10 +322,13 @@ export async function fetchCandlesCacheOnly(symbol: string, timeframe: string, m
     // serve se estiver em dia: mesma regra da busca ao vivo (até 3 barras de atraso), com folga de fim de semana
     // (sábado, domingo e segunda até 02:00Z aceitam até 3,5 dias, pra cobrir o fechamento de sexta).
     const lastTs = candles[candles.length - 1].timestamp;
-    const nowDate = new Date();
-    const utcDay = nowDate.getUTCDay();
-    const weekendWindow = utcDay === 6 || utcDay === 0 || (utcDay === 1 && nowDate.getUTCHours() < 2);
-    const maxAgeMs = Math.max(intervalMs * 3, weekendWindow ? 3.5 * 86_400_000 : 0);
+    // 🐛 FIX 2026-11-05 (Cleber: "o gráfico do S&P 500 não está aparecendo"): às 22:41Z (pausa diária do CFD) a
+    // última vela de 15m era de 21:45Z (56min) e o limite de 3 barras descartava tudo — gráfico em branco.
+    // Com o mercado FECHADO não existe vela nova: o limite de 3 barras só vale com o mercado aberto; fechado,
+    // aceita até 4 dias (cobre fim de semana e feriado prolongado). Cache de semanas atrás continua barrado.
+    const marketOpenNow = isMarketOpen(symbol).isOpen;
+    // Mesmo "aberto" tem pausa diária do CFD (~1h): piso de 2h pra não esconder o gráfico nela.
+    const maxAgeMs = marketOpenNow ? Math.max(intervalMs * 3, 2 * 3_600_000) : 4 * 86_400_000;
     if (Date.now() - lastTs > maxAgeMs) {
       console.warn(`[MarketService] ⚠️ Cache ohlcv_data de ${mt5Symbol} ${mt5Timeframe} desatualizado (última barra ${new Date(lastTs).toISOString()}) — ignorado, esperando a busca ao vivo.`);
       return [];
@@ -442,7 +446,8 @@ async function fetchCandlesFromMetaAPI(symbol: string, timeframe: string, limit:
     // fabricar dado" do projeto), trata como falha explícita quando o
     // último candle está mais velho que o admissível pro timeframe.
     const lastCandle = candles[candles.length - 1];
-    const staleThresholdMs = (msPerCandle[mt5Timeframe] || 3_600_000) * 3;
+    // Mercado fechado (pausa diária, fim de semana, feriado): não há vela nova — ver fix de 2026-11-05 em fetchCandlesCacheOnly.
+    const staleThresholdMs = isMarketOpen(symbol).isOpen ? Math.max((msPerCandle[mt5Timeframe] || 3_600_000) * 3, 2 * 3_600_000) : 4 * 86_400_000;
     const candleAgeMs = Date.now() - lastCandle.timestamp;
     if (candleAgeMs > staleThresholdMs) {
       console.warn(
