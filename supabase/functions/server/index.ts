@@ -4972,8 +4972,14 @@ app.post('/mt5-prices', async (c) => {
                         // liberar a tempo, desiste do candle nesse ciclo em vez de segurar
                         // o preço (tick) inteiro na fila — o preço já foi buscado acima e
                         // precisa voltar rápido pro Navegador de Ativos/Dashboard.
-                        const slotId = await acquireHistoricalDataSlotWithBudget(1200);
+                        // 🐛 FIX 2026-11-05 (Cleber: "o US2000 atualizou do zero% no MT5 e a nossa plataforma não"): na virada
+                        // do dia (~23:00 UTC) TODOS os CFDs voltaram `candles HTTP falhou, change ficará 0` — o orçamento de
+                        // 1,2s pela vaga estourava com o tráfego de velas e a variação ficava em 0% justo na hora em que o
+                        // dia novo começa. A referência (limit=2) é barata e é o dado que define o % do dia: espera até 5s
+                        // pela vaga e, se a chamada falhar por erro de infra, tenta mais uma vez.
+                        const slotId = await acquireHistoricalDataSlotWithBudget(5000);
                         if (!slotId) {
+                            console.warn(`[MT5 PRICES] ⚠️ ${symbol}: sem vaga de dado histórico em 5s (referência do dia) — change ficará 0`);
                             return { ok: false, candles: null as any[] | null };
                         }
                         try {
@@ -4987,7 +4993,10 @@ app.post('/mt5-prices', async (c) => {
                                 (base) => `${base}${candlesPath}?startTime=${startTime.toISOString()}&limit=${limit}`,
                                 { headers: { 'auth-token': metaapiToken, 'Accept': 'application/json' } },
                             );
-                            if (!res.ok) return { ok: false, candles: null as any[] | null };
+                            if (!res.ok) {
+                                console.warn(`[MT5 PRICES] ⚠️ ${symbol}: candle de referência HTTP ${res.status} — change ficará 0`);
+                                return { ok: false, candles: null as any[] | null };
+                            }
                             const json = await res.json();
                             return { ok: true, candles: Array.isArray(json) ? json : null };
                         } finally {
