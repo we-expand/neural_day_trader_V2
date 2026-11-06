@@ -2687,7 +2687,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // (Range)"): POUCOS/MÉDIO/MUITOS sobrepoe o R:R (take-profit/stop)
       // default do motor quando o usuario configurou. null (usuario nunca
       // tocou) preserva o comportamento atual (baseline mt5TakeProfitAtrMultiplier/mt5StopAtrMultiplier).
-      const RR_BY_TARGET_POINTS: Record<string, number> = { POUCOS: 1.5, "MÉDIO": 3, MUITOS: 5 };
+      const RR_BY_TARGET_POINTS: Record<string, number> = { POUCOS: config.mt5RrPoucos, "MÉDIO": config.mt5RrMedio, MUITOS: config.mt5RrMuitos };
       // 🔴 2026-09-05: em fim de semana, usa o multiplicador de alvo dedicado
       // (mais curto -- ver comentário em config.ts) em vez do 4.0x de dia
       // útil. Só se aplica quando o usuário não escolheu um targetPoints
@@ -2918,7 +2918,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // Desliga com MT5_EXPANSION_LIVE=false. Degrau a menos de MT5_EXPANSION_MIN_TARGET_PCT (alvo de centavos): nao ativa.
       let expansionLive = false;
       let expansionStepLabel: string | null = null;
-      if (!isFomcBtcPlay && process.env.MT5_EXPANSION_LIVE !== "false" && session.userConfig?.targetPoints !== "POUCOS") {
+      if (!isFomcBtcPlay && process.env.MT5_EXPANSION_LIVE !== "false" && (session.userConfig?.targetPoints !== "POUCOS" || config.mt5ExpansionInPoucos)) {
         try {
           const fibNow = await getFibLive(symbol);
           const plano = planExpansion({ side, entryPrice: quote.price, corridor: fibNow?.principal ?? null });

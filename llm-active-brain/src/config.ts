@@ -580,6 +580,12 @@ export const config = {
   // 2026-10-16 (pedido do Cleber): o alvo obedece o Setup do usuario (targetPoints). Fracao da PERNADA TIPICA do ativo (mediana das
   // pernadas de 15m, dayProfile.ts) que o alvo pode ocupar: POUCOS = scalp (multiplo do range medio da vela de 15m: 1,0 = ~1 vela), MEDIO = medio, MUITOS = a pernada inteira.
   // Sao limiares de julgamento, nao validados estatisticamente.
+  // 2026-11-06 (painel Admin): R:R (alvo / stop) de cada opcao do Setup "Poucos / Medio / Muitos pontos". Antes fixo no codigo (1.5 / 3 / 5).
+  mt5RrPoucos: Number(process.env.MT5_RR_POUCOS ?? 1.5),
+  mt5RrMedio: Number(process.env.MT5_RR_MEDIO ?? 3),
+  mt5RrMuitos: Number(process.env.MT5_RR_MUITOS ?? 5),
+  // Em POUCOS o modo expansao (alvo no degrau de Fibonacci) ficava desligado por codigo; agora e escolha. false = comportamento antigo.
+  mt5ExpansionInPoucos: (process.env.MT5_EXPANSION_IN_POUCOS ?? "false") === "true",
   mt5TargetLegFractionPoucos: Number(process.env.MT5_TARGET_LEG_FRACTION_POUCOS ?? 1.0),
   mt5TargetLegFractionMedio: Number(process.env.MT5_TARGET_LEG_FRACTION_MEDIO ?? 0.6),
   mt5TargetLegFractionMuitos: Number(process.env.MT5_TARGET_LEG_FRACTION_MUITOS ?? 1.0),
