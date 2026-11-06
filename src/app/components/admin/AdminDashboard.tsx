@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { LayoutDashboard, Wallet, Megaphone, Settings, LogOut, Bell, Search, Menu, X, Beaker, User, Share2, Users, Radio, Activity, Terminal, Shield, Database, Bot } from 'lucide-react';
+import { LayoutDashboard, Wallet, Megaphone, Settings, LogOut, Bell, Search, Menu, X, Beaker, User, Share2, Users, Radio, Activity, Terminal, Shield, Database, Bot, SlidersHorizontal } from 'lucide-react';
 import { FinanceModule } from './FinanceModule';
 import { MarketingModule } from './MarketingModule';
 import { AdminSettings } from './AdminSettings';
@@ -10,6 +10,7 @@ import { UserIntelligence } from './UserIntelligence';
 import { DefensiveArchitecture } from './DefensiveArchitecture';
 import { UserDataDashboard } from './UserDataDashboard';
 import { CrawlerMonitor } from './CrawlerMonitor';
+import { LlmTuningPanel } from './LlmTuningPanel';
 import { Button } from "../ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { toast } from "sonner";
@@ -20,7 +21,7 @@ interface AdminDashboardProps {
 }
 
 export function AdminDashboard({ onExit }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'finance' | 'marketing' | 'devlab' | 'settings' | 'social' | 'users' | 'defensive' | 'userdata' | 'crawler'>('userdata');
+  const [activeTab, setActiveTab] = useState<'overview' | 'finance' | 'marketing' | 'devlab' | 'settings' | 'social' | 'users' | 'defensive' | 'userdata' | 'crawler' | 'llmtuning'>('llmtuning');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const handleExit = () => {
@@ -55,6 +56,8 @@ export function AdminDashboard({ onExit }: AdminDashboardProps) {
         return <UserDataDashboard />;
       case 'crawler':
         return <CrawlerMonitor />;
+      case 'llmtuning':
+        return <LlmTuningPanel />;
       default:
         return (
           <div className="flex flex-col items-center justify-center h-[60vh] text-slate-500">
@@ -106,6 +109,13 @@ export function AdminDashboard({ onExit }: AdminDashboardProps) {
             isActive={activeTab === 'overview'} 
             isExpanded={isSidebarOpen} 
             onClick={() => setActiveTab('overview')} 
+          />
+          <SidebarItem 
+            icon={SlidersHorizontal} 
+            label="Regulagem da LLM" 
+            isActive={activeTab === 'llmtuning'} 
+            isExpanded={isSidebarOpen} 
+            onClick={() => setActiveTab('llmtuning')} 
           />
           <SidebarItem 
             icon={Users} 
@@ -188,6 +198,7 @@ export function AdminDashboard({ onExit }: AdminDashboardProps) {
                     activeTab === 'userdata' ? <><Database className="w-5 h-5 text-emerald-400"/> Dados de Usuários (LGPD)</> :
                     activeTab === 'social' ? <><Share2 className="w-5 h-5 text-indigo-400"/> Social Intelligence</> :
                     activeTab === 'defensive' ? <><Shield className="w-5 h-5 text-red-400"/> Arquitetura Defensiva</> :
+                    activeTab === 'llmtuning' ? <><SlidersHorizontal className="w-5 h-5 text-purple-400"/> Regulagem da LLM</> :
                     activeTab === 'crawler' ? <><Bot className="w-5 h-5 text-cyan-400"/> Intelligent Crawler Monitor</> :
                     <><LayoutDashboard className="w-5 h-5 text-emerald-400"/> Painel de Controle</>}
                  </h2>

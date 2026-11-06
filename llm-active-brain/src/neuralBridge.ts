@@ -495,7 +495,9 @@ export async function getUserTradingConfig(userId: string, fullBasket: string[])
       // cesta do usuario intersectada com a cesta real vazia (nenhum ativo em comum) =
       // sem filtro util, cai pra cesta inteira em vez de travar o motor sem nenhum ativo pra operar.
       activeAssets: intersected && intersected.length > 0 ? intersected : null,
-      maxSimultaneousAssets: typeof raw.maxAssets === "number" && raw.maxAssets > 0 ? Math.floor(raw.maxAssets) : null,
+      maxSimultaneousAssets: config.mt5OverrideMaxSimultaneousAssets > 0
+        ? Math.floor(config.mt5OverrideMaxSimultaneousAssets)
+        : typeof raw.maxAssets === "number" && raw.maxAssets > 0 ? Math.floor(raw.maxAssets) : null,
       cadence: raw.cadence === "CONSERVADORA" || raw.cadence === "AGRESSIVA" ? raw.cadence : "NORMAL",
       timeframe: typeof raw.timeframe === "string" && SUPPORTED_TIMEFRAMES_SET.has(raw.timeframe)
         ? (raw.timeframe as import("./atr.js").SupportedTimeframe)
@@ -503,8 +505,12 @@ export async function getUserTradingConfig(userId: string, fullBasket: string[])
       targetPoints: raw.targetPoints === "POUCOS" || raw.targetPoints === "MÉDIO" || raw.targetPoints === "MUITOS" ? raw.targetPoints : null,
       marketMode: raw.marketMode === "TREND" || raw.marketMode === "COUNTER" ? raw.marketMode : null,
       strategyLabel: typeof raw.activeStrategyId === "string" ? STRATEGY_PRESET_NAMES[raw.activeStrategyId] ?? null : null,
-      maxLotsPerTrade: typeof raw.maxContracts === "number" && raw.maxContracts > 0 ? raw.maxContracts : null,
-      maxOpenPositionsTotal: typeof raw.maxPositions === "number" && raw.maxPositions > 0 ? Math.floor(raw.maxPositions) : null,
+      maxLotsPerTrade: config.mt5OverrideMaxLotsPerTrade > 0
+        ? config.mt5OverrideMaxLotsPerTrade
+        : typeof raw.maxContracts === "number" && raw.maxContracts > 0 ? raw.maxContracts : null,
+      maxOpenPositionsTotal: config.mt5OverrideMaxOpenPositionsTotal > 0
+        ? Math.floor(config.mt5OverrideMaxOpenPositionsTotal)
+        : typeof raw.maxPositions === "number" && raw.maxPositions > 0 ? Math.floor(raw.maxPositions) : null,
     };
     userConfigCache.set(userId, { value, fetchedAt: Date.now() });
     return value;
@@ -936,6 +942,27 @@ export async function getEntriesCountLast24h(sessionId: string): Promise<number>
     .gte("entry_time", since.toISOString());
   if (error) throw error;
   return count ?? 0;
+}
+
+/** Inicio do dia corrente em Brasilia (UTC-3, sem horario de verao) como instante UTC. */
+function startOfBrtDay(now: Date = new Date()): Date {
+  const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  return new Date(Date.UTC(brt.getUTCFullYear(), brt.getUTCMonth(), brt.getUTCDate(), 3, 0, 0));
+}
+
+/** Entradas do DIA (Brasilia) da sessao: total e por ativo. Propaga erro (falha de rede nao pode virar "0 entradas"). */
+export async function getEntriesTodayBySymbol(sessionId: string): Promise<{ total: number; bySymbol: Record<string, number> }> {
+  const sb = getClient();
+  const { data, error } = await sb
+    .from("ai_trades")
+    .select("symbol")
+    .eq("session_id", sessionId)
+    .gte("entry_time", startOfBrtDay().toISOString())
+    .limit(5000);
+  if (error) throw error;
+  const bySymbol: Record<string, number> = {};
+  for (const r of data ?? []) bySymbol[String((r as { symbol: string }).symbol)] = (bySymbol[String((r as { symbol: string }).symbol)] ?? 0) + 1;
+  return { total: (data ?? []).length, bySymbol };
 }
 
 export interface Mt5RecentClosedTrade {

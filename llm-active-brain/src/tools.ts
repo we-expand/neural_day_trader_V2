@@ -4,7 +4,7 @@ import { account, publicClient, walletClient, getBalanceEth } from "./wallet.js"
 import { config } from "./config.js";
 import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
-import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getTrialAbortReason, getEntriesCountLast24h, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
+import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getTrialAbortReason, getEntriesCountLast24h, getEntriesTodayBySymbol, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { getPmiStatus, getPmiBreakout, getPmiCorridor, getDeepCandles, getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
@@ -224,7 +224,6 @@ const MIN_STOP_OR_TARGET_CONSUMED_PCT_FOR_FLIP_CLOSE = 0.5;
 // isolado (regra do projeto: nunca empilhar mudanca de mecanica sem medir,
 // precedente 04/09). NAO mexer de novo antes de 5 dias uteis / 40+ trades
 // fechados sob este valor.
-const MIN_CONFIDENCE_FOR_OPEN_POSITION = 70;
 
 // Simula um resultado com probabilidade `successChance` (0-1) de sucesso.
 function rollSuccess(successChance: number): boolean {
@@ -534,10 +533,10 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
             description:
               `"normal" = arrisca ~${(config.mt5RiskPctPerTrade * 100).toFixed(1)}% do saldo real da conta se o stop bater. ` +
               `"forte" = ${config.mt5HeavyMultiplier}x esse risco. Toda entrada aceita ja exige confidence >= ` +
-              `${MIN_CONFIDENCE_FOR_OPEN_POSITION}% (gate obrigatorio abaixo) -- ou seja, se voce chegou ate aqui, ja e alta ` +
+              `${config.mt5MinConfidenceForOpenPosition}% (gate obrigatorio abaixo) -- ou seja, se voce chegou ate aqui, ja e alta ` +
               `conviccao por definicao. Prefira "forte" quando a confluencia for robusta de verdade (multiplos fatores reais ` +
               `alinhados, nao so o minimo pra passar do gate); use "normal" quando a confianca estiver no limiar (perto de ` +
-              `${MIN_CONFIDENCE_FOR_OPEN_POSITION}%) ou quando ja houver exposicao relevante no mesmo grupo correlacionado.`,
+              `${config.mt5MinConfidenceForOpenPosition}%) ou quando ja houver exposicao relevante no mesmo grupo correlacionado.`,
           },
           reasoning: { type: "string", description: "Por que esta entrada faz sentido agora." },
           confidence: {
@@ -545,7 +544,7 @@ const mt5ToolDefinitions: OpenAI.Chat.ChatCompletionTool[] = [
             description:
               `Sua confianca de 0 a 100 nesta entrada especifica, dado o que get_mt5_quote mostrou (trend/volume/MACD/` +
               `estocastico/spread/padroes de candle) e o reasoning acima -- e o seu julgamento de o quanto os fatores reais ` +
-              `convergem a favor desta tese. IMPORTANTE: abaixo de ${MIN_CONFIDENCE_FOR_OPEN_POSITION} em dia util (ou ` +
+              `convergem a favor desta tese. IMPORTANTE: abaixo de ${config.mt5MinConfidenceForOpenPosition} em dia util (ou ` +
               `${config.mt5MinConfidenceForOpenPositionWeekend} em fim de semana, "isWeekend" em get_mt5_quote) a entrada e ` +
               `RECUSADA pelo codigo (gate obrigatorio) -- nao infle este numero so pra passar, declare a confianca real.`,
           },
@@ -1331,6 +1330,24 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             `Nenhuma posição nova até o teto abrir espaço de novo (janela deslizante). Posições já abertas seguem monitoradas normalmente (stop/breakeven/trailing).`,
         }); if (__blocked) return __blocked; }
       }
+      // 2026-11-06 (painel de regulagem): limites do DIA de Brasilia -- total, ativos distintos e entradas por ativo (0 = sem limite).
+      if (config.mt5MaxEntriesPerDay > 0 || config.mt5MaxAssetsPerDay > 0 || config.mt5MaxEntriesPerAssetPerDay > 0) {
+        const today = await getEntriesTodayBySymbol(session.sessionId);
+        const sym = String(input.symbol || "").toUpperCase();
+        const distinct = Object.keys(today.bySymbol).length;
+        let why: string | null = null;
+        if (config.mt5MaxEntriesPerDay > 0 && today.total >= config.mt5MaxEntriesPerDay) {
+          why = `Limite diario de entradas atingido: ${today.total}/${config.mt5MaxEntriesPerDay} hoje (zera 00:00 de Brasilia).`;
+        } else if (config.mt5MaxAssetsPerDay > 0 && !(sym in today.bySymbol) && distinct >= config.mt5MaxAssetsPerDay) {
+          why = `Limite diario de ativos atingido: ja operou ${distinct}/${config.mt5MaxAssetsPerDay} ativos hoje (${Object.keys(today.bySymbol).join(", ")}); ${sym} seria um ativo novo.`;
+        } else if (config.mt5MaxEntriesPerAssetPerDay > 0 && (today.bySymbol[sym] ?? 0) >= config.mt5MaxEntriesPerAssetPerDay) {
+          why = `Limite diario por ativo atingido: ${sym} ja teve ${today.bySymbol[sym]}/${config.mt5MaxEntriesPerAssetPerDay} entradas hoje.`;
+        }
+        if (why) {
+          const __blocked = gateResult("LIMITE_DIARIO", { error: `${why} Nenhuma posicao nova ate virar o dia. Posicoes abertas seguem monitoradas.` });
+          if (__blocked) return __blocked;
+        }
+      }
       const symbol = String(input.symbol || "").toUpperCase();
       const side = input.side as string;
       const sizeInput = String(input.size || "normal").toLowerCase();
@@ -1401,7 +1418,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           ? config.vixMinConfidenceBonusElevated
           : 0;
       const minConfidenceRequired =
-        (isWeekendMode() ? config.mt5MinConfidenceForOpenPositionWeekend : MIN_CONFIDENCE_FOR_OPEN_POSITION) + vixConfidenceBonus;
+        (isWeekendMode() ? config.mt5MinConfidenceForOpenPositionWeekend : config.mt5MinConfidenceForOpenPosition) + vixConfidenceBonus;
       if (confidence === null || confidence < minConfidenceRequired) {
         { const __blocked = gateResult("CONFIANCA_MINIMA", {
           error: `Confianca declarada (${confidence ?? "nao informada"}) abaixo do minimo exigido para abrir posicao ` +

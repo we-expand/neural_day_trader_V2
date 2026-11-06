@@ -18,6 +18,7 @@ import { startSpreadCollector } from "./spreadCollector.js";
 import { startMarketWatcher } from "./watcher.js";
 import { startDeskOutcomeJob } from "./deskStore.js";
 import { hasPendingTrigger, runExclusive, takeTrigger } from "./llmQueue.js";
+import { initTuning, refreshTuning } from "./tuning.js";
 import { isLiveExecutionActive, getLivePositions, tripLiveCircuitBreaker } from "./liveExecution.js";
 
 function sleep(ms: number) {
@@ -465,6 +466,7 @@ async function runContinuous() {
 
   for (let cycle = 1; cycle <= config.maxCycles; cycle++) {
     console.log(`\n========== CICLO ${cycle}/${config.maxCycles} ==========`);
+    if (config.neuralBridgeEnabled) await refreshTuning();
     if (cycle === 1) console.log(`[DEBUG] MT5_TRADING_ENABLED=${config.mt5TradingEnabled}`);
 
     let calledStop = false;

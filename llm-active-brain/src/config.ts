@@ -805,6 +805,14 @@ export const config = {
   // mantido igual ao de dia útil pra não reabrir o mesmo gargalo quando a
   // virada de dia útil->fim de semana acontecer com o contador ainda alto.
   mt5MaxEntriesPer24hWeekend: Number(process.env.MT5_MAX_ENTRIES_PER_24H_WEEKEND ?? 60),
+  // 2026-11-06 (painel de regulagem do Admin, pedido do Cleber): limites do DIA (calendario de Brasilia, zera 00:00 BRT). 0 = sem limite.
+  mt5MaxEntriesPerDay: Number(process.env.MT5_MAX_ENTRIES_PER_DAY ?? 0), // total de entradas novas no dia
+  mt5MaxAssetsPerDay: Number(process.env.MT5_MAX_ASSETS_PER_DAY ?? 0), // quantos ATIVOS DIFERENTES a LLM pode operar no dia
+  mt5MaxEntriesPerAssetPerDay: Number(process.env.MT5_MAX_ENTRIES_PER_ASSET_PER_DAY ?? 0), // entradas por ativo no dia
+  // Sobrepoem o Setup do AI Trader quando > 0 (0 = obedece o Setup).
+  mt5OverrideMaxSimultaneousAssets: Number(process.env.MT5_OVERRIDE_MAX_SIMULTANEOUS_ASSETS ?? 0),
+  mt5OverrideMaxOpenPositionsTotal: Number(process.env.MT5_OVERRIDE_MAX_OPEN_POSITIONS_TOTAL ?? 0),
+  mt5OverrideMaxLotsPerTrade: Number(process.env.MT5_OVERRIDE_MAX_LOTS_PER_TRADE ?? 0),
   // 2026-09-12 (pedido direto do Cleber): gate de confiança mínima pra abrir
   // posição (MIN_CONFIDENCE_FOR_OPEN_POSITION em tools.ts, fixo em 80%) cai
   // pra este valor mais baixo enquanto isWeekendMode() está ativo -- liquidez
@@ -823,6 +831,8 @@ export const config = {
   // 70 (o valor que acabei de reverter de 80 -> 70 hoje mesmo), intocado.
   // Isolado ao fim de semana por design (isWeekendMode()), nao empilha com
   // a mudanca de dia util.
+  // Confianca minima (%) declarada pela LLM para abrir posicao em dia util (regulavel no painel Admin; a confianca NAO e calibrada, ver painel).
+  mt5MinConfidenceForOpenPosition: Number(process.env.MT5_MIN_CONFIDENCE ?? 70),
   mt5MinConfidenceForOpenPositionWeekend: Number(process.env.MT5_MIN_CONFIDENCE_WEEKEND ?? 60),
   // 2026-09-15 (pedido direto do Cleber): todos os dias, das 17h às 23h
   // Brasília, o gate de "volume elevado" (VOLUME_ELEVATED_RATIO em atr.ts,
