@@ -180,3 +180,45 @@ export function describeExpansionAverages(
   }
   return partes.length ? `Médias no ${c.tf}: ${partes.join("; ")}.` : "";
 }
+
+export interface FibRetracement {
+  tf: string;
+  /** direcao da perna que o preco esta devolvendo: BAIXA = repique (alta) contra uma queda; ALTA = recuo contra uma alta */
+  pernaDirecao: "BAIXA" | "ALTA";
+  pontoA: number;
+  pontoB: number;
+  /** quanto da perna ja foi devolvido (0 a 1) */
+  retraidoPct: number;
+  niveis: { ratio: number; price: number; alcancado: boolean }[];
+}
+
+/**
+ * RETRACAO (2026-11-06, Cleber: "a LLM sempre tem que entender se esta em expansao ou retracao"): quando o preco NAO rompeu o 0 da
+ * ultima perna (computeFibCorridor devolve null), ele esta devolvendo parte dela. Mede quanto (38,2/50/61,8/78,6%).
+ * Funcao pura, so fato calculado. Devolve null sem perna clara ou se o preco ja passou do inicio da perna (perna invalida).
+ */
+export function computeFibRetracement(candles: FibCandle[], opts: FibOptions): FibRetracement | null {
+  const win = opts.window ?? 96;
+  const retrace = opts.retrace ?? 0.3;
+  if (!candles || candles.length < 20) return null;
+  const c = candles.slice(-win);
+  const price = c[c.length - 1].close;
+  const cand = [true, false]
+    .map((baixa) => {
+      const p = primeiraPerna(c, baixa, retrace);
+      if (!p) return null;
+      const perna = Math.abs(p.pontoA - p.pontoB);
+      if (!(perna > 0)) return null;
+      const ret = baixa ? (price - p.pontoB) / perna : (p.pontoB - price) / perna;
+      if (!(ret >= 0 && ret <= 1)) return null; // alem do 0 = expansao; alem do inicio da perna = perna invalida
+      return { ...p, perna, baixa, ret };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+  if (!cand.length) return null;
+  const e = cand.reduce((a, b) => (b.ib > a.ib ? b : a));
+  const niveis = [0.382, 0.5, 0.618, 0.786].map((ratio) => {
+    const lvl = e.baixa ? e.pontoB + ratio * e.perna : e.pontoB - ratio * e.perna;
+    return { ratio, price: lvl, alcancado: e.ret >= ratio };
+  });
+  return { tf: opts.tf, pernaDirecao: e.baixa ? "BAIXA" : "ALTA", pontoA: e.pontoA, pontoB: e.pontoB, retraidoPct: e.ret, niveis };
+}

@@ -544,6 +544,17 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    mecanicamente open_position quando side contradiz stochasticLabel dessa
    forma (SHORT+SOBREVENDIDO ou LONG+SOBRECOMPRADO), mas o objetivo aqui é
    você nunca propor isso, não só depender do bloqueio.
+   **SEMPRE LEIA "fibonacci" em get_mt5_quote (regra do Cleber, 06/11/2026): é o
+   estado calculado pelo sistema -- EXPANSAO_DE_BAIXA/ALTA, RETRACAO (repique ou
+   recuo contra a perna) ou SEM_ESTRUTURA. Você não desenha o Fibonacci: o
+   sistema desenha a partir das velas e o alvo da ordem já vai no degrau.
+   Em EXPANSAO a favor NÃO ESPERE cruzamento de Estocástico nem sinal de MACD:
+   nesse regime eles não aparecem (Estocástico colado no extremo, MACD sem
+   cruzar). A entrada a favor da expansão é o próprio sinal -- cite o estado,
+   o degrau, a invalidação (0 do corredor) e a posição do preço frente à média
+   de 9. Recusar "por falta de cruzamento" numa expansão é erro. Em RETRACAO,
+   volta o critério normal (estocástico/MACD/candle) e o repique contra a perna
+   só vira entrada com confirmação.**
    **EXCEÇÃO ABSOLUTA -- MODO EXPANSÃO DE FIBONACCI (regra do Cleber,
    14/10/2026): quando o placar traz um CORREDOR DE FIBONACCI em expansão
    (rompimento de fundo/topo, com degrau livre à frente), TUDO o que está

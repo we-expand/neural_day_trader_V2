@@ -14,7 +14,7 @@ import { checkReasoningConsistency } from "./reasoningValidator.js";
 import { runTradingDesk, getRecentDeskRejection, rememberDeskRejection, type DeskRiskFacts } from "./desk.js";
 import { linkDeskDecisionToTrade } from "./deskStore.js";
 import { estimateCommissionUsd } from "./commissionModel.js";
-import { getFibLive } from "./fibLive.js";
+import { getFibLive, getFibState } from "./fibLive.js";
 import { getRiskScale } from "./riskScaler.js";
 import { planExpansion } from "./expansionPlan.js";
 import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiveAccountInfo, tripLiveCircuitBreaker } from "./liveExecution.js";
@@ -1105,6 +1105,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         regime,
         movingAverages,
         smcZones,
+        fibonacci: await getFibState(symbol).catch(() => ({ estado: "SEM_DADO" })),
         hmmRegime: hmmRegimeSlim,
         ...(avisos.length > 0 ? { aviso: avisos.join(" | ") } : {}),
       };
