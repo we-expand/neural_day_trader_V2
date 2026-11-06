@@ -32,17 +32,30 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { supabase } from '@/lib/supabaseClient';
 import { VoiceSettings } from '@/app/components/settings/VoiceSettings';
 import { BrokerConnections } from '@/app/components/settings/BrokerConnections';
+import { PasskeySettings } from '@/app/components/settings/PasskeySettings';
 import { AssetHealthMonitor } from '@/app/components/system/AssetHealthMonitor';
 import { MassAssetDiagnostics } from '@/app/components/system/MassAssetDiagnostics';
 import { DataSourceHealthDashboard } from '@/app/components/system/DataSourceHealthDashboard';
 import { AlertSystemPanel } from '@/app/components/system/AlertSystemPanel';
+import { DecisionBrainShadowPanel } from '@/app/components/system/DecisionBrainShadowPanel';
 import { useAuth } from '@/app/contexts/AuthContext';
+import { getAccountMode, setAccountMode, type AccountMode } from '@/app/lib/accountMode';
+import { isShiftStraightenEnabled, setShiftStraightenEnabled } from '@/app/lib/drawingPrefs';
+import { isPositionOpenSoundEnabled, setPositionOpenSoundEnabled, playPositionOpenSound } from '@/app/lib/positionOpenSound';
+import { PushPositionAlerts } from '@/app/components/settings/PushPositionAlerts';
 
 export function Settings() {
   const { user } = useAuth();
-  
+
   // Estados para todas as configurações
   const [tradingNotifications, setTradingNotifications] = useState(true);
+  // Persistido em localStorage (não é preferência efêmera de tela) -- ver
+  // src/app/lib/positionOpenSound.ts, mesmo padrão dos toggles de TradingContext.
+  const [positionOpenSound, setPositionOpenSoundState] = useState(() => isPositionOpenSoundEnabled());
+  // Modo de posição da conta DEMO (ver src/app/lib/accountMode.ts): NETTING (padrão) ou HEDGING.
+  const [accountMode, setAccountModeState] = useState<AccountMode>(() => getAccountMode());
+  // Shift ao traçar uma reta no Gráfico deixa a linha 100% horizontal (ver src/app/lib/drawingPrefs.ts).
+  const [shiftStraighten, setShiftStraightenState] = useState(() => isShiftStraightenEnabled());
   const [emailNotifications, setEmailNotifications] = useState(false);
   const [performanceAlerts, setPerformanceAlerts] = useState(true);
   const [riskAlerts, setRiskAlerts] = useState(true);
@@ -241,8 +254,12 @@ export function Settings() {
           </div>
         </div>
 
-        {/* Tabs - Mais compacto */}
-        <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+        {/* Tabs - Mais compacto. flex-wrap (não overflow-x-auto) de propósito:
+            com 7 abas, overflow-x escondia "Corretoras"/"Sistema" fora da tela
+            sem nenhuma indicação visual de scroll — achado 2026-08-30, dois
+            usuários (Cleber incluso) não acharam a aba Sistema por causa
+            disso. Quebrar linha deixa toda aba sempre visível de cara. */}
+        <div className="flex flex-wrap gap-2 mb-4 pb-2">
           <button
             onClick={() => setActiveTab('general')}
             className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${
@@ -332,6 +349,9 @@ export function Settings() {
                 <VoiceSettings />
               </div>
 
+              {/* Aviso no celular (push real, PWA) */}
+              <PushPositionAlerts />
+
               {/* Notificações */}
               <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 shadow-lg">
                 <div className="flex items-center gap-3 mb-4">
@@ -403,8 +423,72 @@ export function Settings() {
                       <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                     </div>
                   </label>
+
+                  <label className="flex items-center justify-between cursor-pointer group">
+                    <div className="flex-1">
+                      <span className="text-slate-300 text-sm font-medium">Som ao abrir posição</span>
+                      <p className="text-xs text-slate-500">Toca um som curto quando a IA abre uma operação nova</p>
+                    </div>
+                    <div className="relative ml-4">
+                      <input
+                        type="checkbox"
+                        checked={positionOpenSound}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setPositionOpenSoundState(next);
+                          setPositionOpenSoundEnabled(next);
+                          if (next) playPositionOpenSound();
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center justify-between cursor-pointer group">
+                    <div className="flex-1">
+                      <span className="text-slate-300 text-sm font-medium">Permitir posições contrárias abertas ao mesmo tempo (hedge)</span>
+                      <p className="text-xs text-slate-500">Desligado (padrão, netting): uma ordem contrária fecha/reduz a posição aberta. Ligado (hedging): as duas ficam abertas, para você soltar a perdedora e deixar a ganhadora correr. Só vale em DEMO.</p>
+                    </div>
+                    <div className="relative ml-4">
+                      <input
+                        type="checkbox"
+                        checked={accountMode === 'HEDGING'}
+                        onChange={(e) => {
+                          const next: AccountMode = e.target.checked ? 'HEDGING' : 'NETTING';
+                          setAccountModeState(next);
+                          setAccountMode(next);
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center justify-between cursor-pointer group">
+                    <div className="flex-1">
+                      <span className="text-slate-300 text-sm font-medium">Shift deixa a reta 100% reta (Gráfico)</span>
+                      <p className="text-xs text-slate-500">Ao terminar de traçar uma linha segurando o Shift, ela fica perfeitamente horizontal. Desligue se não quiser esse comportamento.</p>
+                    </div>
+                    <div className="relative ml-4">
+                      <input
+                        type="checkbox"
+                        checked={shiftStraighten}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setShiftStraightenState(next);
+                          setShiftStraightenEnabled(next);
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </div>
+                  </label>
                 </div>
               </div>
+
+              {/* Login por Biometria (Passkey/WebAuthn) */}
+              <PasskeySettings />
 
               {/* Idioma & Região */}
               <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 shadow-lg">
@@ -1060,13 +1144,18 @@ export function Settings() {
               <div className="col-span-1 xl:col-span-2">
                 <AlertSystemPanel />
               </div>
+
+              {/* Cérebro Analítico — Modo Sombra (2026-08-30) */}
+              <div className="col-span-1 xl:col-span-2">
+                <DecisionBrainShadowPanel />
+              </div>
             </>
           )}
         </div>
 
         {/* Botões de Ação - Fixos no bottom */}
-        <div className="fixed bottom-20 left-64 right-0 p-4 bg-black/95 border-t border-zinc-800 backdrop-blur-sm z-10">
-          <div className="max-w-7xl mx-auto flex gap-3">
+        <div className="fixed bottom-16 md:bottom-20 left-0 md:left-64 right-0 p-3 md:p-4 bg-black/95 border-t border-zinc-800 backdrop-blur-sm z-10">
+          <div className="max-w-7xl mx-auto flex gap-2 md:gap-3">
             <button 
               onClick={handleSaveSettings}
               className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"

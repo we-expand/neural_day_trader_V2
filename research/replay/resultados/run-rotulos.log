@@ -1,0 +1,31 @@
+modelo nvidia/nemotron-3-super-120b-a12b | variante rotulos | 300 situacoes (150 IN + 150 OUT) de 1406 validas
+  25/300
+  50/300
+  75/300
+  100/300
+  125/300
+  150/300
+  175/300
+  200/300
+  225/300
+  250/300
+  275/300
+  300/300
+
+# Replay da LLM -- variante "rotulos" -- nvidia/nemotron-3-super-120b-a12b
+
+## IN (150 situacoes) -- LONG 66 | SHORT 51 | NONE 33 | erro 0
+  operou (lado escolhido)     n= 117  acerto  42.7% [34-52]  E[R] -0.146 [-0.27, -0.02] t=-2.34  soma -17.1R
+  mesmas, lado oposto         n= 117  acerto  35.0% [27-44]  E[R] -0.226 [-0.34, -0.11] t=-3.83  soma -26.4R
+  LLM AO VIVO, mesmas situac. n= 150  acerto  38.0% [31-46]  E[R] -0.177 [-0.28, -0.08] t=-3.47  soma -26.6R
+  aleatorio (media L/S)       n= 150  acerto  28.0% [21-36]  E[R] -0.157 [-0.21, -0.10] t=-5.50  soma -23.6R
+  resultado por situacao (NONE=0): soma -17.1R em 150 situacoes = -0.114R/situacao  vs ao vivo -0.177
+  por ativo: XETUSD n20 -0.25R | BTCUSD n21 0.03R | NAS100 n15 -0.09R | LNKUSD n22 -0.49R | UKOUSD n23 -0.14R | SPX500 n16 0.17R
+
+## OUT (150 situacoes) -- LONG 54 | SHORT 50 | NONE 45 | erro 1
+  operou (lado escolhido)     n= 104  acerto  41.3% [32-51]  E[R] -0.200 [-0.34, -0.06] t=-2.83  soma -20.8R
+  mesmas, lado oposto         n= 104  acerto  56.7% [47-66]  E[R] -0.008 [-0.15, 0.13] t=-0.11  soma -0.8R
+  LLM AO VIVO, mesmas situac. n= 150  acerto  52.0% [44-60]  E[R] -0.052 [-0.16, 0.06] t=-0.90  soma -7.8R
+  aleatorio (media L/S)       n= 150  acerto  42.0% [34-50]  E[R] -0.087 [-0.15, -0.02] t=-2.62  soma -13.0R
+  resultado por situacao (NONE=0): soma -20.8R em 150 situacoes = -0.139R/situacao  vs ao vivo -0.052
+  por ativo: XETUSD n12 -0.36R | BTCUSD n18 -0.34R | SPX500 n12 0.08R | LNKUSD n17 -0.73R | XAGUSD n18 -0.06R | NAS100 n14 0.18R | UKOUSD n13 -0.04R

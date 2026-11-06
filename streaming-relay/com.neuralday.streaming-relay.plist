@@ -12,6 +12,12 @@
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <!-- Piso extra do próprio launchd, redundante com o backoff embutido no
+         código (src/index.ts) — nunca deixar o processo respawnar mais
+         rápido que isso, mesmo se o backoff interno falhar por algum motivo.
+         Ver incidente de 2026-07-23 em CLAUDE_HISTORY.md. -->
+    <key>ThrottleInterval</key>
+    <integer>15</integer>
     <key>StandardOutPath</key>
     <string>/Users/clebercouto/Projects/we-expand/Neural-Day-Trader/streaming-relay/relay.log</string>
     <key>StandardErrorPath</key>

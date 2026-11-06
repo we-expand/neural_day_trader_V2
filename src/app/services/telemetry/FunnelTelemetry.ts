@@ -53,15 +53,23 @@ import { supabase } from '@/lib/supabaseClient';
 export type FunnelStage =
   // ── Saídas do tick, antes de escolher qualquer ativo ──────────────────────
   | 'TICK_MAX_POSITIONS'          // já está no teto de posições abertas
-  | 'TICK_NEWS_BLACKOUT'          // evento macro de alto impacto na janela de ±15min
   | 'TICK_COOLDOWN'               // cooldown entre trades ainda correndo
   | 'TICK_NO_ASSETS_CONFIGURED'   // "Universo de Ativos" vazio na config
   | 'TICK_NO_ASSET_IN_CATALOG'    // nenhum ativo configurado existe no assetDatabase
 
   // ── Saídas por ativo, antes da estratégia ────────────────────────────────
   | 'ASSET_ANTI_REPEAT'           // é o mesmo ativo do último trade
+  // 🆕 2026-08-25: ANTI_REPEAT só olha o ÚLTIMO trade, então alternar
+  // SOL → ETH → SOL passava direto. Este é por símbolo E por tempo — 33% dos
+  // trades reabriam o mesmo símbolo em <5min (ver TradeFrictionControls.ts).
+  | 'SYMBOL_COOLDOWN'             // fechou posição neste símbolo há pouco tempo
   | 'ASSET_ALREADY_OPEN'          // já existe posição neste ativo (anti-hedging)
   | 'ASSET_MAX_DISTINCT'          // teto de ativos diferentes simultâneos
+  // 🆕 2026-08-21: era `TICK_NEWS_BLACKOUT` (blackout cego pro ciclo inteiro,
+  // qualquer moeda). Motor agora veta só o candidato cuja moeda bate com a
+  // do evento (`getRelevantCurrencies`) — por isso migrou pra saída POR
+  // ATIVO, não mais de tick.
+  | 'ASSET_NEWS_BLACKOUT'         // evento macro de alto impacto (moeda do ativo) na janela de ±15min
   | 'DATA_NOT_REAL'               // sem preço real da corretora neste ciclo
   | 'NO_ACTIVE_STRATEGY'          // nenhuma estratégia selecionada na config
   | 'CANDLES_FETCH_FAILED'        // falha ao buscar histórico do ativo/timeframe
@@ -70,6 +78,8 @@ export type FunnelStage =
   // ── Saídas da estratégia ─────────────────────────────────────────────────
   | 'NO_SIGNAL'                   // blocos de entrada não dispararam neste candle
   | 'STRATEGY_CONFIDENCE_LOW'     // confiança da estratégia abaixo do mínimo
+  | 'RSI_NEUTRAL_LOW_CONFIDENCE'  // 2026-08-25: RSI em zona neutra (40-60) com confiança insuficiente
+  | 'MACD_MOMENTUM_FADING'        // 2026-08-26: histograma MACD contra/encolhendo na direção do trade, confiança insuficiente
 
   // ── Saídas dos gates (estas TAMBÉM gravam em ai_decisions) ───────────────
   | 'SCORE_OPPOSITE'
@@ -79,6 +89,7 @@ export type FunnelStage =
   | 'MARKET_MODE_MISMATCH'
   | 'COST_GATE'
   | 'COST_GATE_NO_DATA'
+  | 'VOLATILITY_TOO_LOW'         // 2026-08-25: ATR < 0,2% do preço, mercado sem movimento
   | 'CONTEXT_GATE'
   | 'TAIL_RISK'
   | 'KILL_SWITCH'
@@ -96,19 +107,22 @@ export type FunnelStage =
 /** Rótulos em PT-BR pra leitura direta do funil sem consultar este arquivo. */
 export const FUNNEL_STAGE_LABELS: Record<FunnelStage, string> = {
   TICK_MAX_POSITIONS: 'Teto de posições abertas atingido',
-  TICK_NEWS_BLACKOUT: 'Notícia macro de alto impacto na janela',
   TICK_COOLDOWN: 'Cooldown entre trades ativo',
   TICK_NO_ASSETS_CONFIGURED: 'Nenhum ativo no Universo de Ativos',
   TICK_NO_ASSET_IN_CATALOG: 'Ativos configurados não existem no catálogo',
   ASSET_ANTI_REPEAT: 'Mesmo ativo do último trade (anti-repetição)',
+  SYMBOL_COOLDOWN: 'Cooldown pós-fechamento neste símbolo (anti-churn)',
   ASSET_ALREADY_OPEN: 'Já existe posição neste ativo (anti-hedging)',
   ASSET_MAX_DISTINCT: 'Teto de ativos diferentes simultâneos',
+  ASSET_NEWS_BLACKOUT: 'Notícia macro de alto impacto na moeda do ativo',
   DATA_NOT_REAL: 'Sem preço real da corretora neste ciclo',
   NO_ACTIVE_STRATEGY: 'Nenhuma estratégia ativa selecionada',
   CANDLES_FETCH_FAILED: 'Falha ao buscar candles do ativo',
   CANDLES_INSUFFICIENT: 'Histórico de candles insuficiente',
   NO_SIGNAL: 'Estratégia sem sinal neste candle',
   STRATEGY_CONFIDENCE_LOW: 'Confiança da estratégia abaixo do mínimo',
+  RSI_NEUTRAL_LOW_CONFIDENCE: 'RSI em zona neutra (40-60) com confiança insuficiente',
+  MACD_MOMENTUM_FADING: 'MACD com momentum contra/encolhendo e confiança insuficiente',
   SCORE_OPPOSITE: 'Market Score aponta direção contrária',
   SCORE_LATERAL: 'Market Score LATERAL e confiança insuficiente',
   COMBINED_CONFIDENCE_LOW: 'Confiança combinada (estratégia+Score) baixa',
@@ -116,6 +130,7 @@ export const FUNNEL_STAGE_LABELS: Record<FunnelStage, string> = {
   MARKET_MODE_MISMATCH: 'Regime não bate com o modo de mercado escolhido',
   COST_GATE: 'Custo devora o movimento típico do ativo',
   COST_GATE_NO_DATA: 'ATR indisponível para avaliar custo',
+  VOLATILITY_TOO_LOW: 'Volatilidade muito baixa (mercado sem movimento significativo)',
   CONTEXT_GATE: 'Context Gate (regime/estrutura) recusou',
   TAIL_RISK: 'Proteção de cauda bloqueou novas entradas',
   KILL_SWITCH: 'Kill switch acionado',

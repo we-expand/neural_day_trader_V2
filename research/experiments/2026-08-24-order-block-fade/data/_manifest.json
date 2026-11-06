@@ -1,0 +1,185 @@
+[
+  {
+    "symbol": "BTCUSD",
+    "tf": "5m",
+    "ok": true,
+    "count": 12960,
+    "source": "binance"
+  },
+  {
+    "symbol": "BTCUSD",
+    "tf": "15m",
+    "ok": true,
+    "count": 11520,
+    "source": "binance"
+  },
+  {
+    "symbol": "BTCUSD",
+    "tf": "1h",
+    "ok": true,
+    "count": 8760,
+    "source": "binance"
+  },
+  {
+    "symbol": "XBNUSD",
+    "tf": "5m",
+    "ok": true,
+    "count": 12960,
+    "source": "binance"
+  },
+  {
+    "symbol": "XBNUSD",
+    "tf": "15m",
+    "ok": true,
+    "count": 11520,
+    "source": "binance"
+  },
+  {
+    "symbol": "XBNUSD",
+    "tf": "1h",
+    "ok": true,
+    "count": 8760,
+    "source": "binance"
+  },
+  {
+    "symbol": "EURUSD",
+    "tf": "5m",
+    "ok": false,
+    "error": "Function failed due to not having enough compute resources (please check logs)"
+  },
+  {
+    "symbol": "EURUSD",
+    "tf": "15m",
+    "ok": true,
+    "count": 8252,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "EURUSD",
+    "tf": "1h",
+    "ok": true,
+    "count": 4103,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "XAUUSD",
+    "tf": "5m",
+    "ok": false,
+    "error": "Function failed due to not having enough compute resources (please check logs)"
+  },
+  {
+    "symbol": "XAUUSD",
+    "tf": "15m",
+    "ok": true,
+    "count": 6762,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "XAUUSD",
+    "tf": "1h",
+    "ok": true,
+    "count": 2974,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "XAGUSD",
+    "tf": "5m",
+    "ok": false,
+    "error": "Function failed due to not having enough compute resources (please check logs)"
+  },
+  {
+    "symbol": "XAGUSD",
+    "tf": "15m",
+    "ok": true,
+    "count": 7222,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "XAGUSD",
+    "tf": "1h",
+    "ok": true,
+    "count": 3069,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "US30",
+    "tf": "5m",
+    "ok": false,
+    "error": "Function failed due to not having enough compute resources (please check logs)"
+  },
+  {
+    "symbol": "US30",
+    "tf": "15m",
+    "ok": true,
+    "count": 6144,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "US30",
+    "tf": "1h",
+    "ok": true,
+    "count": 2356,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "NAS100",
+    "tf": "5m",
+    "ok": false,
+    "error": "Function failed due to not having enough compute resources (please check logs)"
+  },
+  {
+    "symbol": "NAS100",
+    "tf": "15m",
+    "ok": true,
+    "count": 6052,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "NAS100",
+    "tf": "1h",
+    "ok": true,
+    "count": 2356,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "SPX500",
+    "tf": "5m",
+    "ok": false,
+    "error": "Function failed due to not having enough compute resources (please check logs)"
+  },
+  {
+    "symbol": "SPX500",
+    "tf": "15m",
+    "ok": true,
+    "count": 6772,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "SPX500",
+    "tf": "1h",
+    "ok": true,
+    "count": 3205,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "GER40",
+    "tf": "5m",
+    "ok": true,
+    "count": 7640,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "GER40",
+    "tf": "15m",
+    "ok": true,
+    "count": 5912,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "GER40",
+    "tf": "1h",
+    "ok": true,
+    "count": 2363,
+    "source": "metaapi"
+  }
+]

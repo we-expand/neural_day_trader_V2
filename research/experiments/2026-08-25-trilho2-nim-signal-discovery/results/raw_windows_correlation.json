@@ -1,0 +1,68 @@
+[
+  {
+    "hypothesis": "CorrCrossRegime_5m_BTC",
+    "window": 0,
+    "trainTrades": 131,
+    "trainSharpe": -0.1509124938220664,
+    "holdoutTrades": 67,
+    "holdoutWinRate": 0.5074626865671642,
+    "holdoutNetPercentTotal": -2.5088446725622924,
+    "holdoutAvgNetPercent": -0.03744544287406407,
+    "holdoutSharpe": -0.1980954386764104
+  },
+  {
+    "hypothesis": "CorrCrossRegime_5m_BTC",
+    "window": 1,
+    "trainTrades": 127,
+    "trainSharpe": -0.17700363737347463,
+    "holdoutTrades": 68,
+    "holdoutWinRate": 0.5147058823529411,
+    "holdoutNetPercentTotal": -2.1734979201011257,
+    "holdoutAvgNetPercent": -0.0319632047073695,
+    "holdoutSharpe": -0.2120965396764346
+  },
+  {
+    "hypothesis": "CorrCrossRegime_5m_BTC",
+    "window": 2,
+    "trainTrades": 149,
+    "trainSharpe": 0.0014320437033805665,
+    "holdoutTrades": 55,
+    "holdoutWinRate": 0.5454545454545454,
+    "holdoutNetPercentTotal": 0.7416457573570727,
+    "holdoutAvgNetPercent": 0.01348446831558314,
+    "holdoutSharpe": 0.03464565705495309
+  },
+  {
+    "hypothesis": "CorrCrossRegime_1h_XAGUSD",
+    "window": 0,
+    "trainTrades": 27,
+    "trainSharpe": -0.48240021810196665,
+    "holdoutTrades": 7,
+    "holdoutWinRate": 0.5714285714285714,
+    "holdoutNetPercentTotal": -1.4843032022289584,
+    "holdoutAvgNetPercent": -0.21204331460413692,
+    "holdoutSharpe": -0.1051993950290529
+  },
+  {
+    "hypothesis": "CorrCrossRegime_1h_XAGUSD",
+    "window": 1,
+    "trainTrades": 42,
+    "trainSharpe": 0.011997624010295672,
+    "holdoutTrades": 29,
+    "holdoutWinRate": 0.5517241379310345,
+    "holdoutNetPercentTotal": -0.9341323638934471,
+    "holdoutAvgNetPercent": -0.03221146082391197,
+    "holdoutSharpe": -0.009861532759481146
+  },
+  {
+    "hypothesis": "CorrCrossRegime_1h_XAGUSD",
+    "window": 2,
+    "trainTrades": 74,
+    "trainSharpe": -0.25665173399863694,
+    "holdoutTrades": 14,
+    "holdoutWinRate": 0.7857142857142857,
+    "holdoutNetPercentTotal": 6.744513297067253,
+    "holdoutAvgNetPercent": 0.4817509497905181,
+    "holdoutSharpe": 0.30359526127779474
+  }
+]

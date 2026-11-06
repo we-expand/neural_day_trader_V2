@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Bot, Brain, Play, Pause, Power, Settings, TrendingUp, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Crosshair, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Clock, Mic } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Bot, Brain, Play, Pause, Power, Settings, AlertCircle, CheckCircle, CheckCircle2, Activity, Terminal, ShieldAlert, Gauge, Sliders, Target, Zap, Briefcase, Lock, X, Save, RefreshCw, RotateCcw, FolderOpen, Mic, Clock, TrendingUp, Crosshair, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTradingContext } from '../contexts/TradingContext';
 import { useStrategies } from '../hooks/useStrategies';
 import { toast } from 'sonner';
@@ -16,12 +16,10 @@ import { EquityChart } from './tools/EquityChart';
 import { CurrencyConverter } from './tools/CurrencyConverter';
 import { useWorkspaces, WorkspaceSelector, Workspace } from './tools/WorkspaceManager';
 import { ResetAccountModal } from './tools/ResetAccountModal';
-import { AIToolsControl } from './dashboard/AIToolsControl';
-import { SmartScrollContainer } from '@/app/components/SmartScrollContainer';
 import { brokerManager } from '@/app/services/brokers/BrokerAdapter';
 import { MT5Adapter } from '@/app/services/brokers/MT5Adapter';
 import { useMarketData } from '@/app/contexts/MarketDataContext';
-import { AITraderVoice } from '@/app/components/modules/AITraderVoice';
+import { NexusVoiceAssistant } from '@/app/components/nexus/NexusVoiceAssistant';
 import { AIRecoveryChallenge } from './trading/AIRecoveryChallenge';
 import { RecoveryProgressHUD } from './trading/RecoveryProgressHUD';
 import { LiveAlertPanel } from '@/app/modules/liveAlertStage/LiveAlertPanel';
@@ -29,8 +27,6 @@ import { TradeConfirmationPanel } from '@/app/modules/tradeConfirmationStage/Tra
 import { AutoExecutionPanel } from '@/app/modules/autoExecutionStage/AutoExecutionPanel';
 import { FullSizeExecutionPanel } from '@/app/modules/fullSizeExecutionStage/FullSizeExecutionPanel';
 import { AIActivityMonitor } from './ai/AIActivityMonitor';
-import { RISK_PROFILES, getRiskProfile, type RiskProfileId } from '@/app/data/riskProfiles';
-import { previewPositionSizing } from '@/app/services/strategy/positionSizingPreview';
 
 type TradingStyle = 'scalping' | 'day-trade' | 'swing';
 type Direction = 'AUTO' | 'LONG' | 'SHORT';
@@ -44,6 +40,10 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   const [showConverter, setShowConverter] = useState(false);
   const [showEquityChart, setShowEquityChart] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false); // ✅ NEW: Premium Reset Modal
+  // 🔴 2026-09-11 (pedido do Cleber: os 4 painéis de Estágio LIVE ocupavam a
+  // tela inteira o tempo todo, sem nunca recolher). Recolhido por padrão --
+  // some do caminho visual mas continua acessível num clique.
+  const [showExecutionStages, setShowExecutionStages] = useState(false);
   const [showRecoveryChallenge, setShowRecoveryChallenge] = useState(false); // 🚀 NEW: AI Recovery Challenge
   const [challengeActive, setChallengeActive] = useState(false); // 🚀 Challenge em andamento
   const [challengeStartTime, setChallengeStartTime] = useState<Date | null>(null);
@@ -51,10 +51,6 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   const [challengeInitialBalance, setChallengeInitialBalance] = useState(0);
   
   // 🆕 MT5 Connection States
-  // 🆕 Modo Simples (perfil de risco) vs Avançado (preset/timeframe manual) — item 5 do redesenho do cérebro (2026-08-16)
-  const [configMode, setConfigMode] = useState<'SIMPLES' | 'AVANCADO'>('SIMPLES');
-  const [selectedRiskProfileId, setSelectedRiskProfileId] = useState<RiskProfileId | null>(null);
-
   const [showMT5ConfigModal, setShowMT5ConfigModal] = useState(false);
   const [mt5Login, setMt5Login] = useState('');
   const [mt5Password, setMt5Password] = useState('');
@@ -76,6 +72,17 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
      if (compact) setMode('MONITOR');
   }, [compact]);
 
+  // 🔴 2026-09-07 (pedido do Cleber: painel "Logs do Sistema" precisa "estar
+  // viva" + auto-rolagem real). `recentLogs` guarda o mais novo em `[0]`
+  // (addLog prepende, ver useApexLogic.ts) -- exibido nessa MESMA ordem
+  // (mais novo no topo). 1ª tentativa desta sessão invertia a ordem
+  // (mais novo embaixo, estilo terminal) e rolava pro FIM -- Cleber corrigiu
+  // ao vivo: "os logs estão auto rolando para baixo e não para cima que é o
+  // correto". Revertido: ordem natural (mais novo em cima), rolagem
+  // automática pro TOPO a cada linha nova, pra sempre deixar o evento mais
+  // recente visível sem esconder atrás do scroll.
+  const systemLogsScrollRef = useRef<HTMLDivElement>(null);
+
   // 🌐 Sincronizar status de conexão com MarketDataContext
   useEffect(() => {
     setIsConnected(marketData.isConnected);
@@ -83,8 +90,16 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   }, [marketData.isConnected]);
 
   // Use the Global Context for Logic
-  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, executionMode, setExecutionMode, switchToDemoMode, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation, autoExecutionStageEnabled, setAutoExecutionStageEnabled, autoExecutionHistory, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabled, fullSizeExecutionHistory } = useTradingContext();
+  const { status, toggleAI, activeOrders, portfolio, recentLogs, config, setConfig, closeHedgedPositions, resetPortfolio, updateBalance, updatePortfolioFromMT5, syncPositionsFromMT5, isLiveConnected, isDisconnectingLive, disconnectLive, liveAlertStageEnabled, setLiveAlertStageEnabled, liveAlerts, tradeConfirmationStageEnabled, setTradeConfirmationStageEnabled, pendingTradeConfirmations, tradeConfirmationHistory, approveTradeConfirmation, rejectTradeConfirmation, autoExecutionStageEnabled, setAutoExecutionStageEnabled, autoExecutionHistory, fullSizeExecutionStageEnabled, setFullSizeExecutionStageEnabled, fullSizeExecutionHistory, setSelectedAsset } = useTradingContext();
   const { strategies } = useStrategies();
+
+  // Auto-rolagem do painel "Logs do Sistema" -- ver comentário no useRef
+  // acima. Roda a cada linha nova, igual ao Neural Core Terminal.
+  useEffect(() => {
+    if (systemLogsScrollRef.current) {
+      systemLogsScrollRef.current.scrollTop = 0;
+    }
+  }, [recentLogs]);
 
   // 🔥 AUTO-SYNC: Quando MT5 conecta, buscar saldo real automaticamente
   useEffect(() => {
@@ -122,32 +137,6 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
   const handleSaveWorkspace = (name: string) => {
       saveWorkspace(name, config, { showEquityChart });
-  };
-
-  const applyRiskProfile = (profileId: RiskProfileId) => {
-    const profile = getRiskProfile(profileId);
-    setSelectedRiskProfileId(profileId);
-    setConfig(prev => ({
-      ...prev,
-      activeStrategyId: profile.activeStrategyId,
-      timeframe: profile.timeframe,
-      activeAssets: profile.activeAssets,
-      riskPerTrade: profile.riskPerTrade,
-      cooldownEnabled: true,
-      cooldownMinutes: profile.cooldownMinutes,
-      maxTradesPerDay: profile.maxTradesPerDay,
-      // 🔒 2026-08-17: escolher um perfil no modo Simples precisa GARANTIR
-      // uma config segura, não só sobrescrever os campos "óbvios". Achado
-      // real: `atrMultiplier`/`positionSizingMode` não eram tocados aqui —
-      // se o usuário tivesse passado pelo Avançado antes e deixado o
-      // multiplicador ATR alto (ex: 4.0x), o Simples herdava esse valor por
-      // baixo e ficava com o MESMO bug (nocional sempre abaixo do mínimo
-      // executável, silenciosamente) mesmo escolhendo um perfil "seguro".
-      // 1.5x = STOP_ATR_MULTIPLIER do motor (runTradingCycle.ts) — razão 1.0,
-      // sem encolher nem inflar o tamanho calculado por risco%.
-      positionSizingMode: 'ATR',
-      atrMultiplier: 1.5,
-    }));
   };
 
   const toggleAsset = (asset: string) => {
@@ -501,7 +490,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             </button> 
 
             {/* 🚀 AI RECOVERY CHALLENGE */}
-            {executionMode === 'LIVE' && isConnected && (
+            {isLiveConnected && isConnected && (
               <button
                 onClick={() => setShowRecoveryChallenge(true)}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-purple-500 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold hover:from-purple-700 hover:to-pink-700 transition-all shadow-lg shadow-purple-500/50"
@@ -528,11 +517,20 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             />
 
             {/* 🚨 LIVE MODE TOGGLE - Movido para o lado direito */}
+            {/* 🔴 2026-09-09 (achado do Cleber: corretora já conectada em LIVE
+                e o botão continuava dizendo "MODO DEMO"): `executionMode`
+                (acima) é campo legado que nada mais seta pra 'LIVE' no client
+                desde que a execução real virou dinâmica por usuário
+                (ver liveExecution.ts) -- passou a checar `isLiveConnected`
+                (fonte real: broker_credentials, TradingContext), mesma que o
+                badge do Header já usa. Clique quando LIVE desconecta de
+                verdade (`disconnectLive`, NÃO reseta a sessão DEMO -- ela
+                já estava carregada em segundo plano o tempo todo). */}
             <button
               onClick={() => {
-                if (executionMode === 'DEMO') {
+                if (!isLiveConnected) {
                   // Único caminho real de ativação: MT5ConfigPanel (credenciais +
-                  // handleSave já seta executionMode=LIVE). O modal de checklist
+                  // handleSave grava em broker_credentials). O modal de checklist
                   // separado (LiveModeConfirmation) foi removido em 2026-07-27 —
                   // era um segundo caminho para o mesmo estado, que não pedia
                   // credencial nenhuma e só habilitava quando já havia conexão
@@ -540,22 +538,22 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                   // tinha ativado o modo real sozinho, sem checklist).
                   setShowMT5ConfigModal(true);
                 } else {
-                  // Desativar modo LIVE e resetar para DEMO — único caminho,
-                  // compartilhado com o botão ⇄ do Header (ver TradingContext).
-                  switchToDemoMode();
+                  if (!window.confirm('Desconectar a conta real da corretora? Nenhuma posição já aberta será fechada — só a capacidade de enviar ordem nova é removida.')) return;
+                  disconnectLive();
                 }
               }}
+              disabled={isDisconnectingLive}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all font-bold ${
-                executionMode === 'LIVE'
+                isLiveConnected
                   ? 'bg-gradient-to-r from-red-600 to-red-700 border-red-500 text-white shadow-lg shadow-red-500/50 animate-pulse'
                   : 'bg-gray-800 border-gray-600 text-gray-300 hover:border-gray-500'
               }`}
-              title={executionMode === 'LIVE' ? 'Clique para voltar ao modo DEMO' : 'Clique para ativar negociação real'}
+              title={isLiveConnected ? 'Clique para desconectar e voltar ao modo DEMO' : 'Clique para ativar negociação real'}
             >
-              {executionMode === 'LIVE' ? (
+              {isLiveConnected ? (
                 <>
                   <div className="w-2 h-2 bg-red-300 rounded-full animate-pulse"></div>
-                  <span className="text-xs uppercase tracking-wider">🔴 MODO REAL</span>
+                  <span className="text-xs uppercase tracking-wider">{isDisconnectingLive ? 'Desconectando...' : '🔴 MODO LIVE'}</span>
                 </>
               ) : (
                 <>
@@ -592,63 +590,70 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             </button>
 
             {/* Reset Button - Icon Only */}
-            <button
-              onClick={() => setShowResetModal(true)}
-              className="p-3 rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10 hover:border-red-500/50 transition-all"
-              title="Zerar Plataforma"
-            >
-              <RotateCcw className="w-5 h-5" />
-            </button>
+            {/* 2026-08-18: só existe em DEMO. `resetLogic` zera o saldo pra $100, apaga o
+                histórico e sai do Safe Mode — semântica de conta de treino, que não faz
+                sentido nenhum sobre dinheiro real (o saldo real vem da corretora via
+                MetaAPI, não de um default local). Em LIVE, sair do Safe Mode continua
+                possível pelo botão "Sair" do próprio card de risco (disableSafeMode),
+                que não mexe em saldo. */}
+            {!isLiveConnected && (
+              <button
+                onClick={() => setShowResetModal(true)}
+                className="p-3 rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10 hover:border-red-500/50 transition-all"
+                title="Zerar Plataforma (só DEMO)"
+              >
+                <RotateCcw className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
       </div>
       )}
 
-      {/* Fase 6, estágio 1 (LIVE + somente alerta) — ver AI_BRAIN_SPEC.md seção 9.1 */}
-      {!compact && executionMode === 'LIVE' && (
+      {/* Fase 6 (LIVE + escada de autonomia de execução, estágios 1-4) — ver
+          AI_BRAIN_SPEC.md seção 9.1. Recolhido por padrão (pedido do Cleber,
+          2026-09-11: ocupava a tela inteira em LIVE, sem nunca sumir). */}
+      {!compact && isLiveConnected && (
         <div className="mb-4">
-          <LiveAlertPanel
-            alerts={liveAlerts}
-            enabled={liveAlertStageEnabled}
-            onToggle={setLiveAlertStageEnabled}
-          />
-        </div>
-      )}
+          <button
+            onClick={() => setShowExecutionStages(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-2.5 bg-black/30 border border-red-900/40 rounded-xl text-sm text-gray-300 hover:bg-black/50 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-red-400" />
+              Execução automática LIVE (avançado) — Estágios 1-4
+            </span>
+            {showExecutionStages ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </button>
 
-      {/* Fase 6, estágio 2 (LIVE + confirmação manual por trade) — ver AI_BRAIN_SPEC.md seção 9.1 */}
-      {!compact && executionMode === 'LIVE' && (
-        <div className="mb-4">
-          <TradeConfirmationPanel
-            pending={pendingTradeConfirmations}
-            history={tradeConfirmationHistory}
-            enabled={tradeConfirmationStageEnabled}
-            onToggle={setTradeConfirmationStageEnabled}
-            onApprove={approveTradeConfirmation}
-            onReject={rejectTradeConfirmation}
-          />
-        </div>
-      )}
-
-      {/* Fase 6, estágio 3 (LIVE + execução automática, lote mínimo travado) — ver AI_BRAIN_SPEC.md seção 9.1 */}
-      {!compact && executionMode === 'LIVE' && (
-        <div className="mb-4">
-          <AutoExecutionPanel
-            history={autoExecutionHistory}
-            enabled={autoExecutionStageEnabled}
-            onToggle={setAutoExecutionStageEnabled}
-          />
-        </div>
-      )}
-
-      {/* Fase 6, estágio 4 (LIVE + execução automática, TAMANHO REAL) — exige Estágio 3 ligado — ver AI_BRAIN_SPEC.md seção 9.1 */}
-      {!compact && executionMode === 'LIVE' && (
-        <div className="mb-4">
-          <FullSizeExecutionPanel
-            history={fullSizeExecutionHistory}
-            enabled={fullSizeExecutionStageEnabled}
-            stage3Enabled={autoExecutionStageEnabled}
-            onToggle={setFullSizeExecutionStageEnabled}
-          />
+          {showExecutionStages && (
+            <div className="mt-3 space-y-4">
+              <LiveAlertPanel
+                alerts={liveAlerts}
+                enabled={liveAlertStageEnabled}
+                onToggle={setLiveAlertStageEnabled}
+              />
+              <TradeConfirmationPanel
+                pending={pendingTradeConfirmations}
+                history={tradeConfirmationHistory}
+                enabled={tradeConfirmationStageEnabled}
+                onToggle={setTradeConfirmationStageEnabled}
+                onApprove={approveTradeConfirmation}
+                onReject={rejectTradeConfirmation}
+              />
+              <AutoExecutionPanel
+                history={autoExecutionHistory}
+                enabled={autoExecutionStageEnabled}
+                onToggle={setAutoExecutionStageEnabled}
+              />
+              <FullSizeExecutionPanel
+                history={fullSizeExecutionHistory}
+                enabled={fullSizeExecutionStageEnabled}
+                stage3Enabled={autoExecutionStageEnabled}
+                onToggle={setFullSizeExecutionStageEnabled}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -682,7 +687,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                   <span className="text-white font-semibold">{activeOrders.length}</span> / {config.maxPositions} posições
                 </div>
                 <div className="text-slate-400">
-                  Modo: <span className="text-white font-semibold">{executionMode}</span>
+                  Modo: <span className="text-white font-semibold">{isLiveConnected ? 'LIVE' : 'DEMO'}</span>
                 </div>
               </div>
             </div>
@@ -759,7 +764,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                       <span className="text-xs text-cyan-400/70 uppercase tracking-wider font-bold mb-2">Operações Abertas</span>
                       <span className="text-2xl font-bold text-white font-mono">{activeOrders.length}</span>
                       <span className="text-xs text-slate-400/60 font-mono mt-1">
-                        {activeOrders.filter(o => o.side === 'LONG').length} LONG · {activeOrders.filter(o => o.side === 'SHORT').length} SHORT
+                        {activeOrders.filter(o => o.side === 'LONG').length} COMPRA · {activeOrders.filter(o => o.side === 'SHORT').length} VENDA
                       </span>
                     </div>
 
@@ -795,31 +800,38 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                         const pnlValue = pnlValueNum.toFixed(2);
 
                         return (
-                        <div key={order.id} className="p-4 bg-neutral-900/50 border border-white/10 rounded-xl flex items-center justify-between group hover:border-white/20 transition-all shadow-lg shadow-black/20 hover:shadow-purple-900/10 hover:-translate-y-1 relative overflow-hidden">
+                        <div
+                            key={order.id}
+                            onClick={() => {
+                                setSelectedAsset(order.symbol);
+                                onNavigate?.('chart');
+                            }}
+                            title={`Ver ${order.symbol} no gráfico`}
+                            className="p-4 bg-neutral-900/50 border border-white/10 rounded-xl flex flex-wrap items-center justify-between gap-y-2 group hover:border-white/20 transition-all shadow-lg shadow-black/20 hover:shadow-purple-900/10 hover:-translate-y-1 relative overflow-hidden cursor-pointer">
                             {/* Status Bar */}
                             <div className={`absolute left-0 top-0 bottom-0 w-1 ${isPositive ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                            
-                            <div>
-                                <div className="flex items-center gap-2 mb-1">
+
+                            <div className="min-w-0 flex-1 pr-2">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${order.side === 'LONG' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
                                     {order.side === 'LONG' ? 'COMPRADO' : 'VENDIDO'}
                                 </span>
-                                <span className="font-bold text-white text-sm">{order.symbol.replace('USDT', '/USD')}</span>
+                                <span className="font-bold text-white text-sm truncate">{order.symbol.replace('USDT', '/USD')}</span>
                                 {/* 🎯 NEW: Contract Count Badge */}
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                                    {order.amount} {order.amount === 1 ? 'contrato' : 'contratos'}
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 whitespace-nowrap">
+                                    {(order.amount || 0).toFixed(2)} {order.amount === 1 ? 'contrato' : 'contratos'}
                                 </span>
                                 </div>
-                                <div className="flex gap-3 text-[10px] text-slate-500 font-mono">
+                                <div className="flex gap-3 text-[10px] text-slate-500 font-mono flex-wrap">
                                     <span>Entry: ${(order.price || 0).toFixed(2)}</span>
                                     <span>Lev: {(order.leverage || 0).toFixed(1)}x</span>
                                 </div>
                             </div>
-                            <div className="text-right z-10">
-                                <div className={`${isPositive ? 'text-emerald-400' : 'text-red-400'} font-bold font-mono text-lg leading-none mb-1`}>
+                            <div className="text-right z-10 flex-shrink-0">
+                                <div className={`${isPositive ? 'text-emerald-400' : 'text-red-400'} font-bold font-mono text-lg leading-none mb-1 whitespace-nowrap`}>
                                     {isPositive ? '+' : ''}{pnlPercent}%
                                 </div>
-                                <div className={`text-[10px] uppercase tracking-wider font-mono ${isPositive ? 'text-emerald-500/60' : 'text-red-500/60'}`}>
+                                <div className={`text-[10px] uppercase tracking-wider font-mono whitespace-nowrap ${isPositive ? 'text-emerald-500/60' : 'text-red-500/60'}`}>
                                     {isPositive ? '+' : ''}${pnlValue}
                                 </div>
                             </div>
@@ -872,7 +884,12 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 ${formatNumber(portfolio?.equity, 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </p>
                             <p className="text-xs text-slate-500 mt-2 font-mono flex items-center gap-2">
-                                {marketData.isConnected ? (
+                                {/* 🔴 2026-09-11: checava `marketData.isConnected` (WebSocket direto
+                                    antigo, Fase pré-1, token nunca mais fica no client -- praticamente
+                                    nunca fica true na arquitetura atual) em vez do sinal real de
+                                    corretora conectada (`isLiveConnected`, broker_credentials) -- por
+                                    isso sempre mostrava "DEMO" mesmo com LIVE conectado de verdade. */}
+                                {isLiveConnected ? (
                                     <><span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span> SALDO REAL MT5</>
                                 ) : status === 'running' ? (
                                     <><span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span> EM EXECUÇÃO (DEMO)</>
@@ -951,11 +968,6 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                             </p>
                         </div>
 
-                        {/* 🧠 AI TOOLS CONTROL PANEL - Logo abaixo de Patrimônio Total */}
-                        <div className="col-span-1 md:col-span-3">
-                            <AIToolsControl />
-                        </div>
-
                         {/* 🔥 AI Activity Monitor - Mostra o que a IA está fazendo */}
                         {status === 'running' && (
                           <div className="col-span-1 md:col-span-3 mt-2">
@@ -982,7 +994,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                         
                         {/* AI Trader Voice Component */}
                         <div className="p-6">
-                          <AITraderVoice embedded={true} />
+                          <NexusVoiceAssistant embedded={true} />
                         </div>
                     </motion.div>
                 ) : (
@@ -999,121 +1011,24 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                         
                         {/* OLD PROFILE UI REPLACED BY WORKSPACE SELECTOR IN HEADER */}
 
-                        {/* 🆕 Toggle Simples/Avançado — item 5 do redesenho do cérebro (2026-08-16) */}
-                        <div className="flex items-center gap-2 p-1 bg-black rounded-lg border border-white/10 mb-6 w-fit">
-                            <button
-                                onClick={() => setConfigMode('SIMPLES')}
-                                className={`px-4 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${
-                                    configMode === 'SIMPLES' ? 'bg-purple-500/20 text-purple-400' : 'text-slate-500 hover:text-slate-300'
-                                }`}
-                            >
-                                Simples (perfil de risco)
-                            </button>
-                            <button
-                                onClick={() => setConfigMode('AVANCADO')}
-                                className={`px-4 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${
-                                    configMode === 'AVANCADO' ? 'bg-purple-500/20 text-purple-400' : 'text-slate-500 hover:text-slate-300'
-                                }`}
-                            >
-                                Avançado (manual)
-                            </button>
+                        {/* 🔴 2026-09-04 (pedido do Cleber): removido o modo "Simples" (perfil
+                            de risco pronto) — Setup fica só no manual/Avançado, sempre. Motivo:
+                            perfis prontos escondiam campos reais que o motor usa (Fluxo de
+                            Operação, Direção Preferencial etc.), e o toggle causava confusão
+                            sobre onde configurar algo que sempre existiu só no Avançado. */}
+                        <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                            <p className="text-[10px] text-amber-300/90 leading-relaxed">
+                                <span className="font-bold">Modo manual:</span> os campos abaixo interagem entre si — uma
+                                combinação errada (ex: risco baixo + Multiplicador ATR alto) pode fazer a IA rejeitar
+                                TODO trade silenciosamente, mesmo com sinal bom. Fique de olho nos avisos que aparecem
+                                junto dos campos.
+                            </p>
                         </div>
 
-                        {configMode === 'AVANCADO' && (
-                            <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-                                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                                <p className="text-[10px] text-amber-300/90 leading-relaxed">
-                                    <span className="font-bold">Modo manual:</span> os campos abaixo interagem entre si — uma
-                                    combinação errada (ex: risco baixo + Multiplicador ATR alto) pode fazer a IA rejeitar
-                                    TODO trade silenciosamente, mesmo com sinal bom. Fique de olho nos avisos que aparecem
-                                    junto dos campos. No modo "Simples" isso não acontece — os perfis prontos já vêm calibrados.
-                                </p>
-                            </div>
-                        )}
-
-                        {configMode === 'SIMPLES' ? (
-                            <div className="mb-8 space-y-4">
-                                <h3 className="text-xs font-bold text-emerald-500 uppercase tracking-widest flex items-center gap-2">
-                                    <Gauge className="w-4 h-4" /> Perfil de Risco
-                                </h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                                    {RISK_PROFILES.map(profile => (
-                                        <button
-                                            key={profile.id}
-                                            onClick={() => applyRiskProfile(profile.id)}
-                                            className={`text-left p-4 rounded-lg border transition-all ${
-                                                selectedRiskProfileId === profile.id
-                                                    ? profile.experimental
-                                                        ? 'bg-amber-500/10 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
-                                                        : 'bg-purple-500/10 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
-                                                    : profile.experimental
-                                                        ? 'bg-amber-500/5 border-amber-500/30 hover:border-amber-500/50'
-                                                        : 'bg-white/5 border-white/10 hover:border-white/20'
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-1.5 mb-1">
-                                                <div className="text-sm font-bold text-white">{profile.label}</div>
-                                                {profile.experimental && (
-                                                    <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                                                        Não validado
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="text-[10px] text-slate-400 mb-3 leading-relaxed">{profile.description}</div>
-                                            <div className="space-y-1 pt-2 border-t border-white/10">
-                                                <div className="flex justify-between text-[10px]">
-                                                    <span className="text-slate-500">Atividade esperada</span>
-                                                    <span className="font-mono text-cyan-400">
-                                                        {profile.expectedTradesPerDayRange[0].toFixed(1)}–{profile.expectedTradesPerDayRange[1].toFixed(1)}/dia
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between text-[10px]">
-                                                    <span className="text-slate-500">Líq. medido/trade</span>
-                                                    <span className="font-mono text-emerald-400">
-                                                        {profile.expectedNetPercentPerTradeRange[0].toFixed(2)}–{profile.expectedNetPercentPerTradeRange[1].toFixed(2)}%
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between text-[10px]">
-                                                    <span className="text-slate-500">Timeframe</span>
-                                                    <span className="font-mono text-slate-300">{profile.timeframe}</span>
-                                                </div>
-                                                <div className="text-[10px] pt-1">
-                                                    <span className="text-slate-500">Opera: </span>
-                                                    <span className="font-mono text-slate-300">{profile.activeAssets.join(', ')}</span>
-                                                </div>
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="flex items-start gap-2 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded text-[9px] text-amber-500/80">
-                                    <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                    <span>
-                                        Faixas medidas em dado histórico real (`taxa_base.json`, 2026-08-05), não promessa de retorno.
-                                        Passado não garante resultado futuro. Valor em dólar por trade depende do seu capital e do
-                                        tamanho de posição calculado — não exibido aqui de propósito até essa conta fechar. Cesta de
-                                        ativos é fixa por perfil — só os ativos com resultado líquido positivo medido nesse preset/
-                                        timeframe entram.
-                                    </span>
-                                </div>
-                                {selectedRiskProfileId === 'EXPERIMENTAL' && (
-                                    <div className="flex items-start gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded text-[9px] text-amber-300">
-                                        <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                        <span>
-                                            <strong>Perfil experimental — não validado estatisticamente.</strong> O resultado positivo
-                                            vem de um único backtest histórico, sem correção por múltiplos testes (DSR) nem
-                                            walk-forward — a mesma barra que reprovou os outros presets como "edge comprovado" não foi
-                                            aplicada aqui ainda. Pode reverter no próximo dado. Use com capital que você aceita perder
-                                            testando.
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                        ) : (
-
-                        <>
                         {/* ASSET UNIVERSE SELECTOR */}
                         <div className="mb-8">
-                            <AssetUniverse selectedAssets={config.activeAssets} onToggle={toggleAsset} />
+                            <AssetUniverse selectedAssets={config.activeAssets} onToggle={toggleAsset} allocatedCapital={config.allocatedCapital} />
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -1123,7 +1038,11 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 <Target className="w-4 h-4" /> Estratégia
                             </h3>
 
-                            {/* Timeframe Selector (NEW) */}
+                            {/* Timeframe Operacional — 2026-08-31 (pedido do Cleber, "tudo tem que
+                                funcionar"): reconectado ao motor. Todos os indicadores derivados de
+                                candle (tendência/volume/S&R/MACD/estocástico/padrões) passam a
+                                calcular no timeframe escolhido — ver SUPPORTED_TIMEFRAMES/
+                                fetchRecentCandles em atr.ts (llm-active-brain). Default 5m. */}
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-2">
                                     <Clock className="w-3 h-3" /> Timeframe Operacional
@@ -1146,7 +1065,9 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 </div>
                             </div>
 
-                            {/* 🆕 Estratégia ativa — mesma estratégia (pronta ou customizada) usada no Backtest */}
+                            {/* Estratégia — nome do preset vira diretiva de estilo no prompt do LLM
+                                Brain (agent.ts), não uma regra mecânica (o motor de blocos do motor
+                                antigo não existe neste agente, que raciocina livre). */}
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase">Estratégia</label>
@@ -1172,7 +1093,9 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 </select>
                             </div>
 
-                            {/* Market Mode (Trend vs Counter) */}
+                            {/* Fluxo de Operação — A Favor bloqueia contra-tendência sempre; Contra
+                                inverte (só libera contra-tendência/lateral, busca reversão em
+                                suporte/resistência). Guard real em open_position (tools.ts). */}
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-slate-400 uppercase">Fluxo de Operação</label>
                                 <div className="flex gap-2 p-1 bg-black rounded-lg border border-white/10">
@@ -1196,20 +1119,35 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 >
                                     Contra (Reversal)
                                 </button>
+                                <button
+                                    onClick={() => setConfig({ ...config, marketMode: null })}
+                                    className={`flex-1 py-2 rounded text-[10px] font-bold transition-colors ${
+                                    config.marketMode == null
+                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                    }`}
+                                >
+                                    Automático
+                                </button>
                                 </div>
                                 {config.marketMode === 'COUNTER' ? (
-                                    <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded text-[9px] text-amber-500/80 animate-in fade-in slide-in-from-top-1">
+                                    <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded text-[9px] text-amber-500/80">
                                         <Crosshair className="w-3 h-3" />
                                         <span>A IA buscará entradas em <strong>Suportes e Resistências</strong> Majoritários.</span>
                                     </div>
+                                ) : config.marketMode == null ? (
+                                    <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-emerald-500/5 border border-emerald-500/10 rounded text-[9px] text-emerald-500/80">
+                                        <Crosshair className="w-3 h-3" />
+                                        <span>A IA decide <strong>A Favor ou Contra</strong> a tendência conforme a confluência técnica de cada entrada, sem trava mecânica de direção.</span>
+                                    </div>
                                 ) : (
-                                    <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-blue-500/5 border border-blue-500/10 rounded text-[9px] text-blue-500/80 animate-in fade-in slide-in-from-top-1">
+                                    <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-blue-500/5 border border-blue-500/10 rounded text-[9px] text-blue-500/80">
                                         <TrendingUp className="w-3 h-3" />
                                         <span>A IA seguirá o fluxo de <strong>Momentum e Estrutura</strong> do mercado.</span>
                                     </div>
                                 )}
                             </div>
-                            
+
                             {/* Direction */}
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-slate-400 uppercase">Direção Preferencial</label>
@@ -1219,7 +1157,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                     key={dir}
                                     onClick={() => setConfig({ ...config, direction: dir as Direction })}
                                     className={`flex-1 py-2 rounded text-[10px] font-bold transition-colors ${
-                                        config.direction === dir 
+                                        config.direction === dir
                                         ? dir === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : dir === 'SHORT' ? 'bg-red-500/20 text-red-400' : 'bg-purple-500/20 text-purple-400'
                                         : 'text-slate-500 hover:text-slate-300'
                                     }`}
@@ -1230,14 +1168,15 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 </div>
                             </div>
 
-                            {/* Target Points */}
+                            {/* Alvo de Lucro (Range) — sobrepõe o R:R (take-profit/stop) real do
+                                motor quando configurado (RR_BY_TARGET_POINTS em tools.ts). */}
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-slate-400 uppercase">Alvo de Lucro (Range)</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {['POUCOS', 'MÉDIO', 'MUITOS'].map(opt => (
                                     <button
                                     key={opt}
-                                    onClick={() => setConfig({ ...config, targetPoints: opt })}
+                                    onClick={() => setConfig({ ...config, targetPoints: opt as 'MÉDIO' | 'CURTO' | 'LONGO' | 'POUCOS' | 'MUITOS' })}
                                     className={`py-2 rounded border text-[10px] font-bold transition-colors ${
                                         config.targetPoints === opt ? 'border-purple-500 text-purple-400 bg-purple-500/10' : 'border-white/10 text-slate-500 hover:border-white/20'
                                     }`}
@@ -1247,6 +1186,36 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                     ))}
                                 </div>
                             </div>
+
+                            {/* Cadência — frequência com que o LLM Brain avalia ENTRADA NOVA. Não
+                                afeta o monitoramento de stop/breakeven/trailing de posições já
+                                abertas, que roda todo ciclo independente disso — ver
+                                getUserTradingConfig (neuralBridge.ts) e o gate em open_position
+                                (tools.ts) no motor. */}
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Cadência de Entrada</label>
+                                <div className="flex gap-2 p-1 bg-black rounded-lg border border-white/10">
+                                {(['CONSERVADORA', 'NORMAL', 'AGRESSIVA'] as const).map(c => (
+                                    <button
+                                    key={c}
+                                    onClick={() => setConfig({ ...config, cadence: c })}
+                                    className={`flex-1 py-2 rounded text-[10px] font-bold transition-colors ${
+                                        config.cadence === c
+                                        ? c === 'AGRESSIVA' ? 'bg-red-500/20 text-red-400' : c === 'CONSERVADORA' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                    }`}
+                                    >
+                                    {c === 'CONSERVADORA' ? 'CONSERVADORA' : c === 'AGRESSIVA' ? 'AGRESSIVA' : 'NORMAL'}
+                                    </button>
+                                ))}
+                                </div>
+                                <p className="text-[9px] text-slate-500">
+                                    {config.cadence === 'AGRESSIVA' ? 'Avalia entrada nova todo ciclo.'
+                                        : config.cadence === 'CONSERVADORA' ? 'Avalia entrada nova a cada 4 ciclos — mais seletiva.'
+                                        : 'Avalia entrada nova a cada 2 ciclos.'}
+                                    {' '}Posições abertas continuam protegidas (stop/breakeven/trailing) em todos os ciclos.
+                                </p>
+                            </div>
                             </div>
 
                             {/* COLUMN 2: VOLUMETRIA (Contracts/Assets) */}
@@ -1255,7 +1224,9 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 <Briefcase className="w-4 h-4" /> Gestão de Volumetria
                             </h3>
 
-                            {/* Allocated Capital (Smart Wallet Link) */}
+                            {/* Capital para IA — reconectado ao motor (allocatedCapitalUsd, usado
+                                como teto do sizing por risco quando menor que o saldo real, ver
+                                tools.ts). */}
                             <div className="p-3 bg-neutral-900 border border-white/10 rounded-lg space-y-3">
                                 <div className="flex justify-between items-center border-b border-white/5 pb-2">
                                     <label className="text-[10px] font-bold text-blue-400 uppercase flex items-center gap-2">
@@ -1265,21 +1236,20 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         Disponível: <span className="text-white">${formatNumber(portfolio?.balance, 0)}</span>
                                     </span>
                                 </div>
-                                
+
                                 <div className="flex gap-2 items-center">
                                     <div className="relative flex-1">
                                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">$</span>
-                                        <input 
+                                        <input
                                             type="number"
                                             value={config.allocatedCapital}
                                             onChange={(e) => {
                                                 const val = parseFloat(e.target.value);
-                                                // Allow typing but clamp on blur or visual validation
                                                 setConfig({ ...config, allocatedCapital: val });
                                             }}
                                             onBlur={(e) => {
                                                 const val = parseFloat(e.target.value);
-                                                const max = portfolio?.balance || 100; 
+                                                const max = portfolio?.balance || 100;
                                                 if (val > max) {
                                                     setConfig({ ...config, allocatedCapital: max });
                                                     toast.error(`Valor limitado ao saldo disponível: $${max}`);
@@ -1294,13 +1264,13 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 <div className="flex gap-1">
                                     {[25, 50, 75, 100].map(pct => (
                                         <button
                                             key={pct}
                                             onClick={() => {
-                                                const balance = portfolio?.balance || 100; // Fallback mock
+                                                const balance = portfolio?.balance || 100;
                                                 setConfig({ ...config, allocatedCapital: Math.floor(balance * (pct / 100)) });
                                             }}
                                             className="flex-1 py-1 rounded bg-white/5 hover:bg-white/10 text-[9px] font-bold text-slate-400 hover:text-white transition-colors border border-transparent hover:border-white/10"
@@ -1311,36 +1281,38 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 </div>
                             </div>
 
-                            {/* Max Contracts */}
+                            {/* Lotes Máximos por Trade — teto real no sizing (tools.ts), nunca
+                                afrouxa o teto de segurança global, só aperta. */}
                             <div className="space-y-2">
                                 <div className="flex justify-between">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase">Lotes Máximos por Trade</label>
                                     <span className="text-xs font-mono text-white">{(config.maxContracts || 0).toFixed(1)}</span>
                                 </div>
-                                <input 
-                                type="range" 
-                                min="0.1" 
-                                max="10.0" 
+                                <input
+                                type="range"
+                                min="0.1"
+                                max="10.0"
                                 step="0.1"
-                                value={config.maxContracts} 
+                                value={config.maxContracts}
                                 onChange={(e) => setConfig({ ...config, maxContracts: parseFloat(e.target.value) })}
                                 className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
                                 />
                                 <p className="text-[9px] text-slate-500">A IA ajustará a alavancagem automaticamente para encaixar este tamanho.</p>
                             </div>
 
-                            {/* Max Positions */}
+                            {/* Máximo de Posições Abertas — teto AGREGADO de todas as posições da
+                                sessão (qualquer símbolo), real em open_position (tools.ts). */}
                             <div className="space-y-2">
                                 <div className="flex justify-between">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase">Máximo de Posições Abertas</label>
                                     <span className="text-xs font-mono text-white">{config.maxPositions}</span>
                                 </div>
-                                <input 
-                                type="range" 
-                                min="1" 
-                                max="10" 
+                                <input
+                                type="range"
+                                min="1"
+                                max="10"
                                 step="1"
-                                value={config.maxPositions} 
+                                value={config.maxPositions}
                                 onChange={(e) => setConfig({ ...config, maxPositions: parseInt(e.target.value) })}
                                 className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
                                 />
@@ -1352,12 +1324,12 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                     <label className="text-[10px] font-bold text-slate-400 uppercase">Ativos Simultâneos</label>
                                     <span className="text-xs font-mono text-white">{config.maxAssets}</span>
                                 </div>
-                                <input 
-                                type="range" 
-                                min="1" 
-                                max="5" 
+                                <input
+                                type="range"
+                                min="1"
+                                max="5"
                                 step="1"
-                                value={config.maxAssets} 
+                                value={config.maxAssets}
                                 onChange={(e) => setConfig({ ...config, maxAssets: parseInt(e.target.value) })}
                                 className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
                                 />
@@ -1367,13 +1339,12 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
                         </div>
 
-                        {/* GERENCIAMENTO DE RISCO — módulo customizável, ver research/RISK_MODULE_SPEC.md.
-                            🆕 "Proteção e Risco" (Limite de Perda Diária + Filtro de Notícias) e "Limites
-                            de Capital" (Risco por Trade + Max Drawdown) eram duas seções separadas na tela
-                            (uma coluna acima, outra aqui embaixo) sem nenhum campo redundante entre elas —
-                            mas o nome parecido e a separação visual passavam a impressão de duplicidade.
-                            Unificado num único bloco "Gerenciamento de Risco" com 4 cards lado a lado —
-                            nenhum campo foi removido, todos continuam lidos no motor (useApexLogic.ts). */}
+                        {/* GERENCIAMENTO DE RISCO — só os campos com equivalente real no LLM
+                            Brain (motor principal desde 2026-08-31): limite de perda diária e
+                            risco por trade. Campos do motor mecânico antigo sem equivalente
+                            (stop loss mode, drawdown, position sizing, cooldown, correlação,
+                            pyramiding) foram removidos da UX — ver decisão do Cleber na sessão
+                            de religamento do LLM Brain. */}
                         <div className="mt-8 pt-6 border-t border-white/5">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-xs font-bold text-red-500 uppercase tracking-widest flex items-center gap-2">
@@ -1382,31 +1353,13 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 <span className="text-[9px] text-slate-500">Você controla exatamente quando a IA para de operar</span>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-
-                                {/* Modo Stop Loss */}
-                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Modo Stop Loss</span>
-                                    <div className="flex gap-2">
-                                        <button
-                                        onClick={() => setConfig({ ...config, stopLossMode: 'FIXO' })}
-                                        className={`flex-1 py-2 rounded border text-[10px] font-bold ${config.stopLossMode === 'FIXO' ? 'bg-white/10 border-white text-white' : 'border-white/10 text-slate-500'}`}
-                                        >
-                                        Fixo (%)
-                                        </button>
-                                        <button
-                                        onClick={() => setConfig({ ...config, stopLossMode: 'DINAMICO' })}
-                                        className={`flex-1 py-2 rounded border text-[10px] font-bold ${config.stopLossMode === 'DINAMICO' ? 'bg-purple-500/20 border-purple-500 text-purple-400' : 'border-white/10 text-slate-500'}`}
-                                        >
-                                        Dinâmico (AI/SMC)
-                                        </button>
-                                    </div>
-                                    <p className="text-[9px] text-slate-500">"Dinâmico" ativa trailing stop real: preserva a distância de risco original, mas o SL só melhora a favor do trade.</p>
-                                </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
 
                                 {/* Perda diária + Filtro de notícias */}
                                 <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Proteção e Risco</span>
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase flex items-center gap-1.5">
+                                        <ShieldAlert className="w-3.5 h-3.5 text-red-500/70" /> Proteção e Risco
+                                    </span>
 
                                     <div className="space-y-2">
                                         <div className="flex justify-between">
@@ -1421,28 +1374,13 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                         />
                                         <p className="text-[9px] text-slate-500">O sistema entra em "Lockdown" se atingir este limite.</p>
                                     </div>
-
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Filtro de Notícias (Economic Calendar)</label>
-                                        <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
-                                            <Zap className={`w-4 h-4 ${config.newsFilter ? 'text-yellow-500' : 'text-slate-600'}`} />
-                                            <div className="flex-1">
-                                                <span className="text-xs font-bold text-white block">Evitar Alta Volatilidade</span>
-                                                <span className="text-[9px] text-slate-500">Pausar durante Payroll/FOMC</span>
-                                            </div>
-                                            <button
-                                                onClick={() => setConfig({ ...config, newsFilter: !config.newsFilter })}
-                                                className={`w-10 h-5 rounded-full relative transition-colors ${config.newsFilter ? 'bg-emerald-500' : 'bg-slate-700'}`}
-                                            >
-                                                <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.newsFilter ? 'left-6' : 'left-1'}`} />
-                                            </button>
-                                        </div>
-                                    </div>
                                 </div>
 
-                                {/* Risco por trade + Max Drawdown */}
+                                {/* Risco por trade */}
                                 <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Limites de Capital</span>
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase flex items-center gap-1.5">
+                                        <Lock className="w-3.5 h-3.5 text-red-500/70" /> Limites de Capital
+                                    </span>
 
                                     <div className="space-y-2">
                                         <div className="flex justify-between">
@@ -1456,219 +1394,10 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                             className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500"
                                         />
                                     </div>
-
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between">
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Max Drawdown Aceito (%)</label>
-                                            <span className="text-xs font-mono text-red-400">{(config.maxDrawdown || 0).toFixed(0)}%</span>
-                                        </div>
-                                        <input
-                                            type="range" min="5" max="50" step="1"
-                                            value={config.maxDrawdown}
-                                            onChange={(e) => setConfig({ ...config, maxDrawdown: parseFloat(e.target.value) })}
-                                            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500"
-                                        />
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Ancoragem do Drawdown</label>
-                                        <div className="flex bg-black rounded-lg border border-white/10 p-1 gap-1">
-                                            <button
-                                                onClick={() => setConfig({ ...config, drawdownAnchor: 'DAILY_CLOSE' })}
-                                                className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-colors ${config.drawdownAnchor === 'DAILY_CLOSE' ? 'bg-red-600 text-white' : 'text-slate-400'}`}
-                                            >Fechamento Diário</button>
-                                            <button
-                                                onClick={() => setConfig({ ...config, drawdownAnchor: 'INTRADAY_PEAK' })}
-                                                className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-colors ${config.drawdownAnchor === 'INTRADAY_PEAK' ? 'bg-red-600 text-white' : 'text-slate-400'}`}
-                                            >Pico Intradiário</button>
-                                        </div>
-                                        <p className="text-[9px] text-slate-500">"Fechamento Diário" (padrão FTMO/Topstep) não pune lucro intradiário ainda não realizado.</p>
-                                    </div>
                                 </div>
 
-                                {/* Position Sizing */}
-                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Tamanho de Posição</span>
-
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Modo de Cálculo</label>
-                                        <div className="flex bg-black rounded-lg border border-white/10 p-1 gap-1">
-                                            <button
-                                                onClick={() => setConfig({ ...config, positionSizingMode: 'FIXED' })}
-                                                className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-colors ${config.positionSizingMode === 'FIXED' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
-                                            >% Fixo</button>
-                                            <button
-                                                onClick={() => setConfig({ ...config, positionSizingMode: 'ATR' })}
-                                                className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-colors ${config.positionSizingMode === 'ATR' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
-                                            >Ajustado por ATR</button>
-                                        </div>
-                                        <p className="text-[9px] text-slate-500">ATR ajusta o tamanho pela volatilidade real do ativo no momento — mesmo risco em $, menos contratos em ativo mais volátil.</p>
-                                    </div>
-
-                                    {config.positionSizingMode === 'ATR' && (
-                                        <div className="space-y-2">
-                                            <div className="flex justify-between">
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase">Multiplicador ATR</label>
-                                                <span className="text-xs font-mono text-blue-400">{(config.atrMultiplier || 0).toFixed(1)}x</span>
-                                            </div>
-                                            <input
-                                                type="range" min="0.5" max="4" step="0.1"
-                                                value={config.atrMultiplier}
-                                                onChange={(e) => setConfig({ ...config, atrMultiplier: parseFloat(e.target.value) })}
-                                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                                            />
-                                        </div>
-                                    )}
-
-                                    {(() => {
-                                        const preview = previewPositionSizing({
-                                            allocatedCapital: config.allocatedCapital,
-                                            riskPerTrade: config.riskPerTrade,
-                                            riskProfile: config.riskProfile,
-                                            positionSizingMode: config.positionSizingMode,
-                                            atrMultiplier: config.atrMultiplier,
-                                        });
-                                        const styles = {
-                                            ok: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300',
-                                            warning: 'border-amber-500/30 bg-amber-500/5 text-amber-300',
-                                        }[preview.severity];
-                                        return (
-                                            <div className={`rounded-lg border p-3 text-[10px] leading-relaxed ${styles}`}>
-                                                {preview.message}
-                                            </div>
-                                        );
-                                    })()}
-
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between">
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Taxa de Acerto Mínima (%)</label>
-                                            <span className="text-xs font-mono text-amber-400">{(config.minWinRate || 0).toFixed(0)}%</span>
-                                        </div>
-                                        <input
-                                            type="range" min="30" max="80" step="1"
-                                            value={config.minWinRate}
-                                            onChange={(e) => setConfig({ ...config, minWinRate: parseFloat(e.target.value) })}
-                                            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
-                                        />
-                                        <p className="text-[9px] text-slate-500">Abaixo desta taxa de acerto (amostra ≥10 trades), a IA entra em Safe Mode.</p>
-                                    </div>
-                                </div>
-
-                                {/* Cooldown + Limite diário de trades */}
-                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4">
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase block">Pausa &amp; Frequência</span>
-
-                                    <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
-                                        <Zap className={`w-4 h-4 ${config.cooldownEnabled ? 'text-cyan-400' : 'text-slate-600'}`} />
-                                        <div className="flex-1">
-                                            <span className="text-xs font-bold text-white block">Pausa pós-perdas</span>
-                                            <span className="text-[9px] text-slate-500">Pausa após N perdas seguidas</span>
-                                        </div>
-                                        <button
-                                            onClick={() => setConfig({ ...config, cooldownEnabled: !config.cooldownEnabled })}
-                                            className={`w-10 h-5 rounded-full relative transition-colors ${config.cooldownEnabled ? 'bg-emerald-500' : 'bg-slate-700'}`}
-                                        >
-                                            <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.cooldownEnabled ? 'left-6' : 'left-1'}`} />
-                                        </button>
-                                    </div>
-
-                                    {config.cooldownEnabled && (
-                                        <>
-                                            <div className="space-y-2">
-                                                <div className="flex justify-between">
-                                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Perdas Seguidas p/ Ativar</label>
-                                                    <span className="text-xs font-mono text-cyan-400">{config.consecutiveLossesTrigger}</span>
-                                                </div>
-                                                <input
-                                                    type="range" min="1" max="10" step="1"
-                                                    value={config.consecutiveLossesTrigger}
-                                                    onChange={(e) => setConfig({ ...config, consecutiveLossesTrigger: parseInt(e.target.value) })}
-                                                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <div className="flex justify-between">
-                                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Duração da Pausa (min)</label>
-                                                    <span className="text-xs font-mono text-cyan-400">{config.cooldownMinutes}min</span>
-                                                </div>
-                                                <input
-                                                    type="range" min="5" max="240" step="5"
-                                                    value={config.cooldownMinutes}
-                                                    onChange={(e) => setConfig({ ...config, cooldownMinutes: parseInt(e.target.value) })}
-                                                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-                                                />
-                                            </div>
-                                        </>
-                                    )}
-
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between">
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Máx. Trades/Dia</label>
-                                            <span className="text-xs font-mono text-cyan-400">{config.maxTradesPerDay}</span>
-                                        </div>
-                                        <input
-                                            type="range" min="1" max="15" step="1"
-                                            value={config.maxTradesPerDay || 1}
-                                            onChange={(e) => setConfig({ ...config, maxTradesPerDay: parseInt(e.target.value) })}
-                                            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-                                        />
-                                        <p className="text-[9px] text-slate-500">Frequência real medida da estratégia é 0,15–0,6 trades/dia — este é um teto de segurança, não uma meta. Conta trades fechados + posições abertas desde 00:00 UTC.</p>
-                                    </div>
-
-                                    {/* 🆕 2026-07-31: cadência agressiva é OPT-IN explícito — nunca mais
-                                        automática por VIX alto (achado corrigido em research/AI_COGNITIVE_SPEC.md).
-                                        Mesmo ligado, nunca compete com a Proteção de Cauda (Bloco E), que
-                                        continua bloqueando/fechando de forma independente sob choque real
-                                        de volatilidade (ATR ou VIX). */}
-                                    <div className="flex items-center gap-3 p-3 bg-black border border-amber-500/20 rounded-lg">
-                                        <Gauge className={`w-4 h-4 ${config.aggressiveModeEnabled ? 'text-amber-400' : 'text-slate-600'}`} />
-                                        <div className="flex-1">
-                                            <span className="text-xs font-bold text-white block">Cadência Agressiva</span>
-                                            <span className="text-[9px] text-slate-500">Avalia trades a cada 2s em vez de 5s. Você assume o risco — a Proteção de Cauda continua ativa independente disto.</span>
-                                        </div>
-                                        <button
-                                            onClick={() => setConfig({ ...config, aggressiveModeEnabled: !config.aggressiveModeEnabled })}
-                                            className={`w-10 h-5 rounded-full relative transition-colors shrink-0 ${config.aggressiveModeEnabled ? 'bg-amber-500' : 'bg-slate-700'}`}
-                                        >
-                                            <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.aggressiveModeEnabled ? 'left-6' : 'left-1'}`} />
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Correlação entre posições */}
-                                <div className="bg-black/40 border border-white/10 rounded-lg p-4 space-y-4 lg:col-span-3">
-                                    <div className="flex items-center gap-3 p-3 bg-black border border-white/10 rounded-lg">
-                                        <Lock className={`w-4 h-4 ${config.correlationGuardEnabled ? 'text-purple-400' : 'text-slate-600'}`} />
-                                        <div className="flex-1">
-                                            <span className="text-xs font-bold text-white block">Alerta de Correlação entre Posições</span>
-                                            <span className="text-[9px] text-slate-500">Evita "diversificação disfarçada" — vários ativos que se movem juntos</span>
-                                        </div>
-                                        <button
-                                            onClick={() => setConfig({ ...config, correlationGuardEnabled: !config.correlationGuardEnabled })}
-                                            className={`w-10 h-5 rounded-full relative transition-colors shrink-0 ${config.correlationGuardEnabled ? 'bg-emerald-500' : 'bg-slate-700'}`}
-                                        >
-                                            <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${config.correlationGuardEnabled ? 'left-6' : 'left-1'}`} />
-                                        </button>
-                                    </div>
-                                    {config.correlationGuardEnabled && (
-                                        <div className="space-y-2 max-w-md">
-                                            <div className="flex justify-between">
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase">Limiar de Correlação</label>
-                                                <span className="text-xs font-mono text-purple-400">{(config.correlationThreshold || 0).toFixed(2)}</span>
-                                            </div>
-                                            <input
-                                                type="range" min="0.3" max="1" step="0.05"
-                                                value={config.correlationThreshold}
-                                                onChange={(e) => setConfig({ ...config, correlationThreshold: parseFloat(e.target.value) })}
-                                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
-                                            />
-                                        </div>
-                                    )}
-                                </div>
                             </div>
                         </div>
-                        </>
-                        )}
 
                         {/* ASSET SELECTION REMOVED - REPLACED BY ASSET UNIVERSE COMPONENT */}
 
@@ -1730,25 +1459,37 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                  </div>
             </div>
 
-            {/* Logs Section */}
-            <div className="border border-white/5 rounded-xl bg-neutral-950 p-4 flex flex-col flex-1 min-h-[200px]">
+            {/* Logs Section -- cresce até preencher o resto da coluna
+                (mesma altura real da coluna da esquerda, `h-full` no pai),
+                não mais altura fixa -- pedido do Cleber 2026-09-07: "vá até
+                a linha vermelha" (a `h-[600px]` fixa sobrava vazio até lá
+                quando a coluna real era mais alta). Auto-rolagem: mais novo
+                SEMPRE no topo (mesma ordem que `recentLogs` já usa em todo o
+                resto do app -- `addLog` prepende), rolando pro TOPO a cada
+                linha nova -- não pro fim, ver useApexLogic.ts. */}
+            <div className="border border-white/5 rounded-xl bg-neutral-950 p-4 flex flex-col flex-1 min-h-0">
                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                <Terminal className="w-4 h-4" /> Logs do Sistema
+                <Terminal className="w-4 h-4" /> Logs do Sistema — Atividade da IA
+                {recentLogs.length > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-1" title="Recebendo atividade ao vivo" />
+                )}
                 </h3>
-                <SmartScrollContainer className="flex-1 space-y-2 font-mono text-xs flex flex-col">
+                <div
+                  ref={systemLogsScrollRef}
+                  className="flex-1 min-h-0 overflow-y-auto space-y-2 font-mono text-xs scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
+                >
                 {recentLogs.length === 0 ? (
                     <NeuralLogsEmpty />
                 ) : (
                     recentLogs.map((log, i) => (
                         <div key={i} className="flex gap-2">
-                            <span className="text-slate-600">[{new Date().toLocaleTimeString()}]</span>
                             <span className={log.includes('EXECUTION') ? 'text-emerald-400' : log.includes('RISK') ? 'text-red-400' : 'text-slate-300'}>
                             {log}
                             </span>
                         </div>
                     ))
                 )}
-                </SmartScrollContainer>
+                </div>
             </div>
         </div>
         )}
@@ -1782,7 +1523,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
             onClick={() => setShowMT5ConfigModal(false)}
           />
           
-          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] max-h-[90vh] border border-gray-700 bg-[#131722] rounded-lg shadow-2xl z-[100] flex flex-col">
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-1.5rem)] max-w-[520px] max-h-[90vh] border border-gray-700 bg-[#131722] rounded-lg shadow-2xl z-[100] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700 flex-shrink-0">
               <div>
                 <h2 className="text-lg font-semibold text-white">Configuração MT5</h2>

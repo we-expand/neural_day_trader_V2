@@ -25,6 +25,9 @@ export interface DirectAccountInfo {
   freeMargin: number;
   leverage: number;
   currency: string;
+  // 🔴 2026-09-09: campo real já devolvido pela MetaAPI (account-information),
+  // só não estava tipado aqui ainda — usado pro card de margem no Dashboard.
+  marginLevel?: number;
 }
 
 export interface TradeResult {
@@ -111,13 +114,20 @@ export async function saveBrokerCredentials(
   return invokeBroker('credentials', { method: 'POST', body: { token, accountId, mt5Login, mt5Server } });
 }
 
+// 🔴 2026-09-11 (achado: saldo LIVE "oscilando" entre o real e o $100 do DEMO):
+// esta função engolia QUALQUER erro transitório (rede, instabilidade da
+// MetaAPI já documentada neste projeto) e devolvia `{configured: false}` —
+// indistinguível de "usuário nunca conectou corretora". Os 2 chamadores
+// (useApexLogic.ts reconcile() e TradingContext.tsx checkConnected()) já
+// tinham lógica pra MANTER o último estado conhecido numa falha transitória
+// (comentários "falha transitória -- mantém o último estado"), mas essa
+// lógica nunca disparava porque o erro nunca chegava até eles — sempre virava
+// um `configured: false` "de sucesso". Cada poll de 10-20s que batesse numa
+// falha transitória derrubava `isLiveConnected`/`brokerConnectedCacheRef` pra
+// false, fazendo o Dashboard cair pro cálculo de saldo simulado (DEMO) até o
+// próximo poll ter sucesso. Deixa o erro propagar — quem chama já sabe tratar.
 export async function getBrokerCredentialsStatus(): Promise<BrokerCredentialsStatus> {
-  try {
-    return await invokeBroker('credentials/status', { method: 'GET' });
-  } catch (error) {
-    console.error('[BrokerClient] Erro ao checar status das credenciais:', error);
-    return { configured: false };
-  }
+  return await invokeBroker('credentials/status', { method: 'GET' });
 }
 
 export async function deleteBrokerCredentials(): Promise<{ success: boolean }> {
@@ -152,6 +162,22 @@ export async function getPositions(): Promise<any[]> {
     console.error('[BrokerClient] Erro ao buscar posições:', error);
     return [];
   }
+}
+
+// 🔴 2026-09-11: variantes que NÃO engolem erro de rede/MetaAPI -- usadas pelo
+// polling de reconciliação LIVE (useApexLogic.ts). `getPositions()`/
+// `getAccountInfo()` acima devolvem []/null tanto pra "sem posição real"
+// quanto pra falha transitória, indistinguíveis pra quem chama -- mesmo bug
+// já catalogado no caminho DEMO (reconcile() de ai_trades) que apagava a
+// posição da tela numa falha de rede até o próximo poll ter sucesso.
+export async function getPositionsOrThrow(): Promise<any[]> {
+  const result = await invokeBroker('execute', { body: { action: 'getPositions' } });
+  return result.positions || [];
+}
+
+export async function getAccountInfoOrThrow(): Promise<DirectAccountInfo | null> {
+  const result = await invokeBroker('execute', { body: { action: 'getAccountInfo' } });
+  return result.accountInfo || null;
 }
 
 export async function createMarketBuyOrder(params: OrderParams): Promise<TradeResult> {

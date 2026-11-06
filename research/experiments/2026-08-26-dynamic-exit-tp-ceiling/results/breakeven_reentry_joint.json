@@ -1,0 +1,56 @@
+[
+  {
+    "breakevenR": 0.5,
+    "n": 123,
+    "skipped": 43,
+    "netSum_bruto": 9.788106417460682,
+    "fechamentos_perto_do_zero": 55,
+    "custo_esperado_reentrada": 0.7376028,
+    "netSum_ajustado": 9.050503617460683
+  },
+  {
+    "breakevenR": 0.75,
+    "n": 123,
+    "skipped": 43,
+    "netSum_bruto": 3.33731345792948,
+    "fechamentos_perto_do_zero": 41,
+    "custo_esperado_reentrada": 0.7226004000000004,
+    "netSum_ajustado": 2.61471305792948
+  },
+  {
+    "breakevenR": 1,
+    "n": 123,
+    "skipped": 43,
+    "netSum_bruto": 2.3599477053304945,
+    "fechamentos_perto_do_zero": 36,
+    "custo_esperado_reentrada": 0.7172424000000005,
+    "netSum_ajustado": 1.642705305330494
+  },
+  {
+    "breakevenR": 1.25,
+    "n": 123,
+    "skipped": 43,
+    "netSum_bruto": 0.5940586605570392,
+    "fechamentos_perto_do_zero": 29,
+    "custo_esperado_reentrada": 0.7097412000000007,
+    "netSum_ajustado": -0.11568253944296158
+  },
+  {
+    "breakevenR": 1.5,
+    "n": 123,
+    "skipped": 43,
+    "netSum_bruto": -2.6793228499757102,
+    "fechamentos_perto_do_zero": 18,
+    "custo_esperado_reentrada": 0.6979536000000008,
+    "netSum_ajustado": -3.377276449975711
+  },
+  {
+    "breakevenR": 2,
+    "n": 123,
+    "skipped": 43,
+    "netSum_bruto": -5.73365912128364,
+    "fechamentos_perto_do_zero": 12,
+    "custo_esperado_reentrada": 0.6915240000000009,
+    "netSum_ajustado": -6.425183121283641
+  }
+]

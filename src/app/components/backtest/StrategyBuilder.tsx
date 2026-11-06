@@ -473,9 +473,9 @@ export function StrategyBuilder({
                             onChange={(e) => setStrategy({ ...strategy, tradeDirection: e.target.value as any })}
                             className="w-full bg-zinc-800 text-slate-300 text-sm rounded px-3 py-2 border border-zinc-700 focus:border-blue-500 focus:outline-none"
                           >
-                            <option value="both">Long e Short</option>
-                            <option value="long">Apenas Long</option>
-                            <option value="short">Apenas Short</option>
+                            <option value="both">Compra e Venda</option>
+                            <option value="long">Apenas Compra</option>
+                            <option value="short">Apenas Venda</option>
                           </select>
                         </div>
                       </div>

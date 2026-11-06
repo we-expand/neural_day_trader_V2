@@ -1,3 +1,4 @@
+import { supabase } from '@/lib/supabaseClient';
 import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useApexLogic, TradeVisual, PendingOrderVisual, PortfolioState, AIConfig, HouseStats, EquityPoint } from '../hooks/useApexLogic';
@@ -12,6 +13,7 @@ import {
 } from '../modules/tradeConfirmationStage/useTradeConfirmationStage';
 import { useAutoExecutionStage, AutoExecutedTrade } from '../modules/autoExecutionStage/useAutoExecutionStage';
 import { useFullSizeExecutionStage, FullSizeExecutedTrade } from '../modules/fullSizeExecutionStage/useFullSizeExecutionStage';
+import { getBrokerCredentialsStatus, deleteBrokerCredentials } from '../services/BrokerClient';
 
 interface TradingContextType {
   // State from useApexLogic
@@ -35,6 +37,7 @@ interface TradingContextType {
   candlesSinceLastTrade: number;
   maxCandlesBeforeForceEntry: number;
   equityHistory: EquityPoint[];
+  lastPositionSyncAt: number | null;
 
   // Actions from useApexLogic
   startLogic: () => void;
@@ -50,8 +53,20 @@ interface TradingContextType {
     entryPrice: number;
     stopLoss?: number;
     takeProfit?: number;
+  }) => { success: boolean; error?: string; tradeId?: string; netted?: boolean; message?: string };
+  recordLiveManualPosition: (params: {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    volume: number;
+    entryPrice: number;
+    brokerPositionId: string;
+    stopLoss?: number;
+    takeProfit?: number;
   }) => { success: boolean; error?: string; tradeId?: string };
   closeManualPosition: (tradeId: string, currentPrice: number) => void;
+  setOpenPositionStop: (tradeId: string, newStop: number, currentPrice: number) => { success: boolean; error?: string; live?: boolean };
+  setOpenPositionTarget: (tradeId: string, newTp: number, currentPrice: number) => { success: boolean; error?: string; live?: boolean };
+  closeLiveManualPosition: (tradeId: string) => Promise<{ success: boolean; error?: string }>;
   pendingOrders: PendingOrderVisual[];
   openManualPendingOrder: (params: {
     symbol: string;
@@ -64,6 +79,12 @@ interface TradingContextType {
     takeProfit?: number;
   }) => { success: boolean; error?: string; orderId?: string };
   cancelManualPendingOrder: (orderId: string) => void;
+  updateManualPendingOrderPrice: (orderId: string, newTriggerPrice: number, currentPrice: number) => { success: boolean; error?: string };
+  updateManualPendingOrder: (
+    orderId: string,
+    updates: { triggerPrice?: number; stopLoss?: number | null; takeProfit?: number | null; volume?: number },
+    currentPrice: number
+  ) => { success: boolean; error?: string };
   checkPendingOrderTriggers: (symbol: string, price: number) => void;
   updateAIConfig: (config: Partial<AIConfig>) => void;
   connectToMT5: (credentials: any) => Promise<void>;
@@ -76,6 +97,19 @@ interface TradingContextType {
   syncPositionsFromMT5: (positions: any[]) => void;
   setExecutionMode: React.Dispatch<React.SetStateAction<'DEMO' | 'LIVE'>>;
   switchToDemoMode: () => void;
+
+  // 🔴 2026-09-09: fonte de verdade REAL de conexão com corretora — vem de
+  // `broker_credentials` (mesma tabela que o backend/llm-active-brain usam
+  // pra decidir DEMO vs LIVE dinamicamente), não do `executionMode` acima
+  // (campo legado que ninguém mais seta pra 'LIVE' no client desde que a
+  // execução real virou dinâmica por usuário — ver liveExecution.ts). Único
+  // lugar que faz esse polling; Header/AITrader consomem daqui.
+  isLiveConnected: boolean;
+  // true depois da 1ª resposta real de `broker_credentials` -- antes disso
+  // `isLiveConnected=false` significa "ainda não sei", não "DEMO".
+  isLiveStatusKnown: boolean;
+  isDisconnectingLive: boolean;
+  disconnectLive: () => Promise<void>;
 
   // Legacy compatibility (mapped to useApexLogic functions)
   status: 'idle' | 'running';
@@ -199,21 +233,17 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
   const autoExecutionStageEnabledRef = useRef(false);
   const fullSizeExecutionStageEnabledRef = useRef(false);
   const executionModeRef = useRef<'DEMO' | 'LIVE'>('DEMO');
+  // 🔴 2026-09-11 (achado ao vivo, Cleber testando dinheiro real): esta
+  // função é alimentada pelo `runTradingCycle` (motor mecânico ANTIGO,
+  // rodando no navegador a cada 5s via useApexLogic.ts) -- não pela LLM
+  // (`llm-active-brain`, processo Node separado, que hoje só decide dentro
+  // da sessão DEMO). Ou seja: os Estágios 1-4 de execução LIVE estavam
+  // conectados ao motor errado, nunca à LLM. Até a ponte real LLM→execução
+  // LIVE ser desenhada e implementada, nenhuma decisão do motor mecânico
+  // pode virar ordem real -- decisão de segurança, não flag de produto.
   const forwardLiveDecision = useCallback((decision: TradeVisual) => {
-    if (executionModeRef.current !== 'LIVE') {
-      liveDecisionHandlerRef.current(decision);
-      return;
-    }
-    if (autoExecutionStageEnabledRef.current && fullSizeExecutionStageEnabledRef.current) {
-      fullSizeExecutionHandlerRef.current(decision);
-      return;
-    }
-    if (autoExecutionStageEnabledRef.current) {
-      autoExecutionHandlerRef.current(decision);
-      return;
-    }
-    if (tradeConfirmationStageEnabledRef.current) {
-      confirmationStageHandlerRef.current(decision);
+    if (executionModeRef.current === 'LIVE') {
+      console.warn('[forwardLiveDecision] Decisão do motor mecânico antigo ignorada em LIVE -- fonte de decisão real é a LLM (llm-active-brain), não este motor. Ver comentário 2026-09-11.', decision);
       return;
     }
     liveDecisionHandlerRef.current(decision);
@@ -371,6 +401,162 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
       description: 'Voltou para negociação simulada | Saldo resetado: $100'
     });
   }, [logic.setExecutionMode, logic.resetLogic]);
+
+  // 🔴 2026-09-09 (pedido do Cleber): badge/botão "MODO DEMO" continuava
+  // aparecendo com a corretora já conectada em LIVE porque `executionMode`
+  // (acima) é campo legado que nada mais seta pra 'LIVE' no client -- checa
+  // direto `broker_credentials`, mesma fonte que o Header já usava sozinho
+  // (agora centralizado aqui pra não duplicar polling/lógica divergente).
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+  const [isLiveStatusKnown, setIsLiveStatusKnown] = useState(false);
+  const [isDisconnectingLive, setIsDisconnectingLive] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkConnected = async () => {
+      try {
+        const status = await getBrokerCredentialsStatus();
+        if (!cancelled) {
+          setIsLiveConnected(!!status.configured);
+          setIsLiveStatusKnown(true);
+        }
+      } catch {
+        // falha transitória -- mantém o último estado conhecido.
+      }
+    };
+    checkConnected();
+    const interval = setInterval(checkConnected, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // === RECONCILIAÇÃO CONTÍNUA DE POSIÇÕES/SALDO REAIS (2026-09-11) ===
+  // 🔴 Achado do Cleber: posição real aberta no MT5 não aparecia no Dashboard,
+  // mesmo depois de uma 1ª tentativa de fix (removida de useApexLogic.ts) que
+  // checava `logic.executionMode === 'LIVE'` -- campo legado que, pelo
+  // comentário logo acima (linha ~398), NADA no client mais seta pra 'LIVE'
+  // (confirmado: nenhuma chamada a `setExecutionMode('LIVE')` existe no
+  // repo). O sinal real de "corretora conectada" é `isLiveConnected`, aqui
+  // mesmo, lido de `broker_credentials`. `syncPositionsFromMT5`/
+  // `updatePortfolioFromMT5` (useApexLogic) só eram chamados uma vez, no
+  // clique de "Conectar corretora" (AITrader.tsx) -- uma posição aberta
+  // direto no MT5 (fora do app) ou já existente antes dessa sincronização
+  // inicial nunca aparecia até desconectar/reconectar. Usa as variantes
+  // `OrThrow` (não engolem erro de rede) pra não confundir falha transitória
+  // com "0 posições" e apagar a tela à toa. Só leitura -- nunca fecha/decide
+  // nada aqui.
+  useEffect(() => {
+    if (!isLiveConnected) return;
+    let cancelled = false;
+    let inFlight = false;
+    let lastPushAt = 0;
+    const POLL_MS = 3_000; // sem push recente (relay fora do ar / migration não rodou): polling REST como antes, só mais rápido
+    const PUSH_FRESH_MS = 8_000; // com push recente o polling vira só rede de segurança e fica quieto
+
+    const applyLiveState = (positions: any[], accountInfo: any) => {
+      logic.syncPositionsFromMT5(positions);
+      if (accountInfo && Number.isFinite(Number(accountInfo.balance))) {
+        logic.updatePortfolioFromMT5({
+          balance: Number(accountInfo.balance),
+          equity: Number(accountInfo.equity ?? accountInfo.balance),
+        });
+      }
+    };
+
+    // 🔴 2026-11-03 (Cleber: "o delay tem que ser muito baixo"): o streaming-relay grava posições/saldo reais em
+    // `live_account_state` a cada mudança que a MetaAPI empurra (<1s do terminal MT5), e o Realtime entrega aqui na hora.
+    // RLS: só o dono da conta enxerga a linha. O polling abaixo só roda quando NÃO chega push (ver PUSH_FRESH_MS).
+    // Nome único por execução do efeito + try/catch: com o mesmo nome, uma re-execução do efeito (as deps mudam) pegava o canal
+    // antigo ainda não removido e `.on()` lançava "cannot add callbacks after subscribe()", derrubando o efeito inteiro --
+    // inclusive o polling de reserva, e nenhuma posição aparecia. O push nunca pode impedir o polling de rodar.
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      channel = supabase
+        .channel(`live-account-state-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'live_account_state' }, (payload: any) => {
+          const row = payload?.new;
+          if (cancelled || !row || !Array.isArray(row.positions)) return;
+          lastPushAt = Date.now();
+          applyLiveState(row.positions, row.account_info);
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('[TradingContext] Push de posições indisponível, usando só polling:', err);
+    }
+
+    const pollLivePositions = async () => {
+      if (inFlight) return;
+      inFlight = true; // chamadas à corretora levam 1-3s (às vezes 10s+): nunca empilhar uma em cima da outra
+      try {
+        // 1) Lê a linha do relay direto do banco (~100ms). Reaplica SEMPRE, mesmo sem mudança: outro código pode ter apagado as
+        // posições da tela (o push só dispara quando algo muda no MT5, então nada as repunha). Linha recente = relay vivo.
+        const { data: liveRow } = await supabase
+          .from('live_account_state')
+          .select('positions, account_info, updated_at')
+          .limit(1)
+          .maybeSingle();
+        if (cancelled) return;
+        if (liveRow && Array.isArray(liveRow.positions) && Date.now() - new Date(liveRow.updated_at).getTime() < 90_000) {
+          lastPushAt = Date.now();
+          applyLiveState(liveRow.positions, liveRow.account_info);
+          return;
+        }
+        // 2) Relay fora do ar / linha velha: REST na corretora, como antes.
+        const { getPositionsOrThrow, getAccountInfoOrThrow } = await import('../services/BrokerClient');
+        const [positions, accountInfo] = await Promise.all([
+          getPositionsOrThrow(),
+          getAccountInfoOrThrow(),
+        ]);
+        if (cancelled) return;
+        applyLiveState(positions, accountInfo);
+      } catch (err) {
+        console.warn('[TradingContext] Falha ao reconciliar posições LIVE (mantendo último estado):', err);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    pollLivePositions();
+    const poll = setInterval(pollLivePositions, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, [isLiveConnected, logic.syncPositionsFromMT5, logic.updatePortfolioFromMT5]);
+
+  // Desconectar da corretora real NÃO é o mesmo que `switchToDemoMode` acima:
+  // aquele reseta a sessão DEMO pra $100 (semântica de "começar do zero",
+  // usada pelo botão de reset explícito). Aqui a sessão DEMO nunca foi
+  // desmontada -- ficou hidratada em segundo plano o tempo todo (ver
+  // hidratação em useApexLogic, roda sempre que executionMode==='DEMO', que
+  // é o valor que esse campo sempre teve desde que a execução real virou
+  // dinâmica). Desconectar só remove a credencial e deixa a sessão DEMO já
+  // carregada (saldo/posições) aparecer -- pedido explícito do Cleber pra
+  // não "entrar numa tela de demo zerada".
+  const disconnectLive = useCallback(async () => {
+    if (isDisconnectingLive) return;
+    setIsDisconnectingLive(true);
+    try {
+      const result = await deleteBrokerCredentials();
+      if (result.success) {
+        setIsLiveConnected(false);
+        logic.setExecutionMode('DEMO');
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('neural_execution_mode', 'DEMO');
+        }
+        toast.success('Desconectado da corretora', { description: 'Voltando pro modo DEMO — sessão anterior mantida.' });
+      } else {
+        toast.error('Falha ao desconectar', { description: 'Tente de novo em alguns segundos.' });
+      }
+    } catch (error) {
+      toast.error('Falha ao desconectar', { description: error instanceof Error ? error.message : 'Erro desconhecido' });
+    } finally {
+      setIsDisconnectingLive(false);
+    }
+  }, [isDisconnectingLive, logic.setExecutionMode]);
   
   const panicClose = useCallback(async () => {
     logic.forceCloseAll();
@@ -380,9 +566,24 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     // Legacy function - no-op for now
   }, []);
   
+  // 2026-08-18: reset iniciado pelo USUÁRIO — só DEMO. `resetLogic` zera o saldo pra
+  // $100, apaga o histórico e sai do Safe Mode: semântica de conta de treino, sem
+  // sentido sobre dinheiro real (em LIVE o saldo vem da corretora via MetaAPI, não de
+  // um default local). O botão já fica escondido em LIVE (AITrader.tsx) e Funds.tsx já
+  // tinha guarda equivalente — esta é a barreira de verdade, no caminho único que a UI
+  // usa, pra que esconder o botão não seja a única proteção.
+  // NOTA: `switchToDemoMode` chama `logic.resetLogic()` direto de propósito, sem passar
+  // por aqui — lá o reset é justamente o efeito desejado, e o estado de executionMode
+  // ainda não propagou no instante da chamada.
   const resetPortfolio = useCallback((balance: number) => {
+    if (logic.executionMode !== 'DEMO') {
+      toast.error('Reinicialização Total é exclusiva do modo DEMO', {
+        description: 'Em conta real o saldo vem da corretora. Para sair do Safe Mode sem mexer no saldo, use o botão "Sair" no card de risco.'
+      });
+      return;
+    }
     logic.resetLogic();
-  }, [logic.resetLogic]);
+  }, [logic.resetLogic, logic.executionMode]);
   
   const closeHedgedPositions = useCallback(() => {
     // Legacy function - no-op for now
@@ -409,6 +610,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     candlesSinceLastTrade: logic.candlesSinceLastTrade,
     maxCandlesBeforeForceEntry: logic.maxCandlesBeforeForceEntry,
     equityHistory: logic.equityHistory,
+    lastPositionSyncAt: logic.lastPositionSyncAt,
 
     // Actions from useApexLogic
     startLogic: logic.startLogic,
@@ -418,10 +620,16 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     resetLogic: logic.resetLogic,
     forceCloseAll: logic.forceCloseAll,
     openManualPosition: logic.openManualPosition,
+    recordLiveManualPosition: logic.recordLiveManualPosition,
     closeManualPosition: logic.closeManualPosition,
+    setOpenPositionStop: logic.setOpenPositionStop,
+    setOpenPositionTarget: logic.setOpenPositionTarget,
+    closeLiveManualPosition: logic.closeLiveManualPosition,
     pendingOrders: logic.pendingOrders,
     openManualPendingOrder: logic.openManualPendingOrder,
     cancelManualPendingOrder: logic.cancelManualPendingOrder,
+    updateManualPendingOrderPrice: logic.updateManualPendingOrderPrice,
+    updateManualPendingOrder: logic.updateManualPendingOrder,
     checkPendingOrderTriggers: logic.checkPendingOrderTriggers,
     updateAIConfig: logic.updateAIConfig,
     connectToMT5: logic.connectToMT5,
@@ -434,6 +642,10 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     syncPositionsFromMT5: logic.syncPositionsFromMT5,
     setExecutionMode: logic.setExecutionMode,
     switchToDemoMode,
+    isLiveConnected,
+    isLiveStatusKnown,
+    isDisconnectingLive,
+    disconnectLive,
 
     // Legacy compatibility
     status: logic.isActive ? 'running' : 'idle',
@@ -491,6 +703,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.candlesSinceLastTrade,
     logic.maxCandlesBeforeForceEntry,
     logic.equityHistory,
+    logic.lastPositionSyncAt,
     logic.startLogic,
     logic.stopLogic,
     logic.pauseLogic,
@@ -498,10 +711,16 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.resetLogic,
     logic.forceCloseAll,
     logic.openManualPosition,
+    logic.recordLiveManualPosition,
     logic.closeManualPosition,
+    logic.setOpenPositionStop,
+    logic.setOpenPositionTarget,
+    logic.closeLiveManualPosition,
     logic.pendingOrders,
     logic.openManualPendingOrder,
     logic.cancelManualPendingOrder,
+    logic.updateManualPendingOrderPrice,
+    logic.updateManualPendingOrder,
     logic.checkPendingOrderTriggers,
     logic.updateAIConfig,
     logic.connectToMT5,
@@ -514,6 +733,10 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.syncPositionsFromMT5,
     logic.setExecutionMode,
     switchToDemoMode,
+    isLiveConnected,
+    isLiveStatusKnown,
+    isDisconnectingLive,
+    disconnectLive,
     toggleAI,
     setConfig,
     setRiskProfile,

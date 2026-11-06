@@ -28,7 +28,7 @@ import {
   Database, // 🔥 NOVO: Ícone para painel de dados
   Settings // ⚙️ NOVO: Ícone para configuração rápida
 } from 'lucide-react';
-import { NexusQuantumAdvisor } from '../nexus/NexusQuantumAdvisor';
+import { NexusAssistant } from '../nexus/NexusAssistant';
 import { toast } from 'sonner';
 import { DepositModal } from '../wallet/DepositModal';
 import { InfinoxAssetsBrowser } from './InfinoxAssetsBrowser'; // ✅ NOVO: Import do navegador de ativos
@@ -39,6 +39,7 @@ import { MT5StatusBadge } from './MT5StatusBadge'; // 🔌 NOVO: Badge de status
 import { isMarketOpen, getMarketStatusIcon, getMarketStatusMessage } from '@/app/utils/marketHours';
 import { calculateCryptoDailyChange } from '@/app/utils/cryptoDailyChange'; // ✅ NOVO: BTC Reset 22:00h PT
 import { getAssetBySymbol } from '@/app/config/assetDatabase';
+import { floorToLotStep } from '@/app/modules/tradeConfirmationStage/lotSizeConversion';
 import { getRealMarketData, getLastKnownRealPrice, subscribeToRealtimePrice } from '@/app/services/RealMarketDataService'; // ✅ 2026-07-12: fonte única de preço/variação pra todas as classes de ativo — ver CLAUDE.md sobre fragmentação (MetaApiService/UnifiedMarketDataService descontinuados no Dashboard). subscribeToRealtimePrice: streaming-relay (2026-07-14)
 import { useAnimatedNumber } from '@/app/hooks/useAnimatedNumber';
 import { formatPrice as formatPriceByAsset } from '@/app/utils/priceFormatter';
@@ -176,9 +177,19 @@ function isBinanceCryptoSymbol(symbol: string): boolean {
 // visualmente via useAnimatedNumber, sem mexer no pipeline de dados. Componente
 // separado porque é usado dentro de um `.map()` (hooks não podem ser chamados
 // direto dentro do callback do map).
+// 🐛 FIX 2026-09-05 (achado do Cleber: posição de notional pequeno, ex. 1
+// lote de XLMUSD ~$0.18, mostrava PnL "+0.00" mesmo com preço já tendo
+// andado um pouco -- 2 casas fixas arredondava qualquer PnL real abaixo de
+// meio centavo pra zero, mesmo sendo um valor real e não nulo). Mais casas
+// só quando o valor é genuinamente pequeno (posição de notional baixo),
+// mesmo espírito do fix de "pts" em ChartView.tsx.
+function pnlPrecision(value: number): number {
+  return Math.abs(value) > 0 && Math.abs(value) < 0.01 ? 4 : 2;
+}
+
 function AnimatedOrderPnl({ value, className }: { value: number; className: string }) {
   const animated = useAnimatedNumber(value);
-  return <div className={className}>{animated >= 0 ? '+' : ''}{animated.toFixed(2)}</div>;
+  return <div className={className}>{animated >= 0 ? '+' : ''}{animated.toFixed(pnlPrecision(animated))}</div>;
 }
 
 export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) => void } = {}) => {
@@ -540,7 +551,17 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
             // velho" — nesse caso o calendário é sempre a fonte de verdade,
             // nunca declara fechado só por falta momentânea de dado.
             const neverHadRealDataYet = !isRealData && marketData.source === 'generated';
-            const STALE_TICK_MS = 10 * 60 * 1000;
+            // ✅ 2026-08-21: precisa ser <= LAST_KNOWN_STALE_AFTER_MS (5min) de
+            // RealMarketDataService.ts — dali pra cá, `getFallbackOrLastKnown`
+            // já marca `isRealData: false` num tick com 5min+ de idade (guarda
+            // de TTL adicionada na mesma sessão), mas preserva o `timestamp`
+            // antigo. Com STALE_TICK_MS maior que esse TTL, um tick de 5-10min
+            // caía no ramo `!isRealData` sem nunca checar o calendário —
+            // declarando "MERCADO FECHADO" com o mercado genuinamente aberto,
+            // só porque o feed atrasou. Mantendo os dois limiares alinhados
+            // (5min), qualquer tick que o serviço já marcou como não-real
+            // também é tratado aqui como "tick velho" e cai no calendário.
+            const STALE_TICK_MS = 5 * 60 * 1000;
             const tickAgeMs = marketData.timestamp ? Date.now() - marketData.timestamp : Infinity;
             const isTickStale = tickAgeMs > STALE_TICK_MS;
             const calendarSaysOpen = isMarketOpen(activeSymbol).isOpen;
@@ -677,27 +698,20 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
     // Para Forex/Indices, manter animação suave
     const animate = () => {
         const lerpFactor = 0.05;
-        
-        // Add micro-jitter for "aliveness" (Organic Tick Noise)
-        const jitter = (Math.random() - 0.5) * 0.2; 
-        
+
         simTrendRef.current = simTrendRef.current + (targetTrendRef.current - simTrendRef.current) * lerpFactor;
-        
-        // Apply jitter only to the visual score, not the trend reference itself to avoid drift
-        const visualTrend = simTrendRef.current + jitter;
-        
+
+        const visualTrend = simTrendRef.current;
+
         const priceDiff = Math.abs(targetPriceRef.current - currentPrice);
         let nextPrice = currentPrice;
-        
+
         if (priceDiff > (currentPrice * 0.1)) {
-            nextPrice = targetPriceRef.current; 
+            nextPrice = targetPriceRef.current;
         } else {
             nextPrice = currentPrice + (targetPriceRef.current - currentPrice) * lerpFactor;
         }
 
-        // Add micro price noise
-        nextPrice = nextPrice * (1 + ((Math.random() - 0.5) * 0.00005));
-        
         // ✅ Animar variação absoluta também
         const nextChange = currentChange + (targetChangeRef.current - currentChange) * lerpFactor;
 
@@ -798,9 +812,14 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
       return formatPriceByAsset(p, activeSymbol);
   };
 
+  // 🐛 FIX 2026-09-05 (mesmo achado do Cleber: PnL Total "+$0.00" numa
+  // posição de notional pequeno, ex. 1 lote XLMUSD ~$0.18): moeda em 2
+  // casas fixas arredondava qualquer P&L real abaixo de meio centavo pra
+  // zero. Mais casas só quando o valor é genuinamente pequeno.
   const formatMoney = (val: number) => {
       if (!Number.isFinite(val)) return "$0.00";
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+      const digits = Math.abs(val) > 0 && Math.abs(val) < 0.01 ? 4 : 2;
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(val);
   };
 
   const formatPnL = (val: number) => {
@@ -811,7 +830,13 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
 
   const activePnL = activeOrders.reduce((acc, o) => acc + (o.currentProfit || 0), 0);
   const animatedActivePnL = useAnimatedNumber(activePnL);
-  const profitAi = (portfolio?.equity || 0) - (config.initialBalance || 100);
+
+  // ✅ 2026-09-12: "Lucro AI Trader" media contra config.initialBalance
+  // (default hardcoded $100), igual ao bug já corrigido abaixo pro card
+  // "Risco da Conta" -- com allocatedCapital real menor que $100 (ex:
+  // $54,03), o número inflava a perda exibida (achado real: $14,22 de
+  // equity mostrava "-$85,78" em vez da perda real de ~$39,81 contra o
+  // capital de fato alocado). Âncora unificada com allocatedCapital abaixo.
 
   // ✅ 2026-07-20: "Risco da Conta" usava só o P&L flutuante das posições
   // ABERTAS agora (activePnL) — zerava sempre que não havia posição aberta,
@@ -821,8 +846,31 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
   // (pico real de drawdown desde o início da sessão, persistido) contra o
   // limite real configurado, e reflete o Safe Mode quando ativo.
   const maxDrawdownLimit = config.maxDrawdown && config.maxDrawdown > 0 ? config.maxDrawdown : 15;
-  const realDrawdownPercent = portfolio?.currentDrawdown || 0;
-  const riskPercent = Math.min(realDrawdownPercent, maxDrawdownLimit);
+  // 🔴 2026-09-11 (pedido do Cleber): drawdown do card "Risco da Conta" media
+  // a queda contra um pico/âncora de equity MÓVEL (portfolio.currentDrawdown,
+  // baseado em peakEquity ou equity de abertura do dia -- ver
+  // useApexLogic.ts) -- em vez do capital que o usuário de fato alocou pra
+  // IA (allocatedCapital, definido no Setup). Isso fazia o % de risco não
+  // refletir de forma estável "quanto da minha entrada eu já perdi": um
+  // teto de 35% deve significar 35% ABAIXO do capital que o usuário alocou,
+  // não 35% abaixo de um pico de equity que muda a cada novo topo. Agora
+  // calcula direto: queda real em $ desde o capital alocado, como % desse
+  // mesmo capital alocado -- fixo até o usuário mudar o valor manualmente
+  // no Setup, nunca recalculado sozinho pelo pico de equity.
+  const allocatedCapital = config.allocatedCapital && config.allocatedCapital > 0
+    ? config.allocatedCapital
+    : 100;
+  const profitAi = (portfolio?.equity || 0) - allocatedCapital;
+  const currentEquity = portfolio?.equity ?? allocatedCapital;
+  const realDrawdownPercent = currentEquity < allocatedCapital
+    ? ((allocatedCapital - currentEquity) / allocatedCapital) * 100
+    : 0;
+  // Math.min(realDrawdownPercent, maxDrawdownLimit) travava o numerador no
+  // valor do teto assim que era ultrapassado (ex: sempre "35.00%/35.00%",
+  // escondendo o quanto pior a perda real estava) -- exibe o valor real,
+  // só limitado a 100% por sanidade. `riskRatio` pode passar de 1 quando o
+  // drawdown real excede o teto, o que já classifica RISCO ALTO abaixo.
+  const riskPercent = Math.min(realDrawdownPercent, 100);
   const riskRatio = maxDrawdownLimit > 0 ? riskPercent / maxDrawdownLimit : 0;
 
   return (
@@ -896,8 +944,12 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                 </button>
 
                 <div
-                    className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 rounded-lg border border-purple-500/20"
-                    title={scanner?.bestAsset ? `Melhor ativo real (cripto): ${scanner.bestAsset.symbol} — score ${scanner.bestAsset.score.toFixed(0)}, ${scanner.bestAsset.classification}` : undefined}
+                    onClick={scanner?.bestAsset ? () => {
+                        setSelectedAsset(scanner.bestAsset!.symbol);
+                        onNavigate?.('chart');
+                    } : undefined}
+                    className={`flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 rounded-lg border border-purple-500/20 transition-all ${scanner?.bestAsset ? 'cursor-pointer hover:border-purple-500/50 hover:bg-purple-500/20' : ''}`}
+                    title={scanner?.bestAsset ? `Ver ${scanner.bestAsset.symbol} no gráfico — score ${scanner.bestAsset.score.toFixed(0)}, ${scanner.bestAsset.classification}` : undefined}
                 >
                      <div className={`w-1.5 h-1.5 rounded-full ${scanner?.isScanning ? 'bg-purple-400 animate-pulse' : 'bg-emerald-400'}`} />
                      <span className="text-[10px] font-bold text-purple-300 uppercase tracking-widest">
@@ -1088,7 +1140,10 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                     <TrendingUp className="w-3 h-3 text-cyan-400" />
                 </div>
                 <div className="relative z-10 h-12">
-                    <MiniEquityChart data={equityHistory.map(p => p.equity)} />
+                    <MiniEquityChart
+                        data={equityHistory.map(p => p.equity)}
+                        referenceEquity={config.initialBalance || 100}
+                    />
                 </div>
             </Card>
         </div>
@@ -1110,8 +1165,22 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                                     somar a MESMA conversão usada por posição (nocional / (lotSize × preço)). */}
                                 {activeOrders.length} {activeOrders.length === 1 ? 'posição ativa' : 'posições ativas'} • {activeOrders.reduce((sum, order) => {
                                     const asset = getAssetBySymbol(order.symbol);
-                                    const lots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : 0;
-                                    return sum + lots;
+                                    const rawLots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : 0;
+                                    // 🐛 FIX 2026-09-02 (regra do Cleber: a plataforma NUNCA abre posição
+                                    // abaixo do lote mínimo — já garantido no motor real,
+                                    // llm-active-brain/src/tools.ts:1289-1290, "lots = MIN_LOTS" se cair
+                                    // abaixo). Reconstruir o lote a partir do valor em dólar guardado (via
+                                    // floor puro) é só uma ESTIMATIVA de exibição — pequena variação de
+                                    // preço entre abertura e agora podia fazer essa reconstrução cair uma
+                                    // fração abaixo do mínimo real e SOMAR ZERO, subcontando o total mesmo
+                                    // a posição estando de fato no lote mínimo. Clampa pro mínimo do ativo
+                                    // em vez de zerar — nunca inventa um lote maior, só nunca finge que uma
+                                    // posição real vale zero lote.
+                                    const floored = rawLots > 0 ? floorToLotStep(order.symbol, rawLots) : null;
+                                    const contribution = floored && !floored.error
+                                        ? floored.volume
+                                        : (asset ? asset.minLot : 0);
+                                    return sum + contribution;
                                 }, 0).toFixed(2)} lotes total
                             </p>
                         </div>
@@ -1137,7 +1206,23 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                         // valor em dólar como se fosse "lotes" e ainda multiplicava por
                         // preço de novo pro "Volume", inflando o número em milhões.
                         const asset = getAssetBySymbol(order.symbol);
-                        const estimatedLots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : null;
+                        const rawLots = asset && order.price > 0 ? order.amount / (asset.lotSize * order.price) : null;
+                        // Arredonda pro lote real mínimo do ativo (ver lotSizeConversion.ts,
+                        // 2026-08-20) — nunca exibe fração abaixo do que a corretora aceitaria.
+                        const flooredLotCheck = rawLots !== null && rawLots > 0 ? floorToLotStep(order.symbol, rawLots) : null;
+                        // 🐛 FIX 2026-09-02 (regra do Cleber: a plataforma NUNCA abre posição
+                        // abaixo do lote mínimo — já garantido no motor real,
+                        // llm-active-brain/src/tools.ts:1289-1290, "lots = MIN_LOTS" se cair
+                        // abaixo). Todo trade que chega aqui JÁ foi executado com lote >= mínimo;
+                        // "floored.error" (rawLots reconstruído do $ guardado caindo abaixo do
+                        // mínimo por variação de preço entre abertura e agora) é só imprecisão da
+                        // ESTIMATIVA de exibição, nunca uma posição real inválida. Antes disso
+                        // mostrava "Abaixo do mín." — alarme falso pra uma regra que nunca foi
+                        // quebrada de verdade. Mostra o mínimo do ativo (chão real conhecido) em
+                        // vez de um aviso de violação que não aconteceu.
+                        const estimatedLots = flooredLotCheck && !flooredLotCheck.error
+                            ? flooredLotCheck.volume
+                            : (asset ? asset.minLot : null);
 
                         return (
                             <div
@@ -1152,7 +1237,7 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                                 <div className="flex items-start justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                         <span className="font-bold text-white text-sm">
-                                            {order.symbol.replace('USDT', '').replace('USD', '')}
+                                            {order.symbol}
                                         </span>
                                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
                                             order.side === 'LONG'
@@ -1206,7 +1291,11 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
                                     </div>
                                     <div className="flex justify-between text-[10px]">
                                         <span className="text-neutral-500">Contratos:</span>
-                                        <span className="text-white font-mono font-bold">{estimatedLots !== null ? `${estimatedLots.toFixed(4)} lotes` : '—'}</span>
+                                        {estimatedLots !== null ? (
+                                            <span className="text-white font-mono font-bold">{estimatedLots.toFixed(4)} lotes</span>
+                                        ) : (
+                                            <span className="text-neutral-600 font-mono">—</span>
+                                        )}
                                     </div>
                                     <div className="flex justify-between text-[10px]">
                                         <span className="text-neutral-500">Exposição:</span>
@@ -1534,7 +1623,7 @@ export const MarketScoreBoard = ({ onNavigate }: { onNavigate?: (view: string) =
             {/* COL 3: ANÁLISE POR FONTE - EXPANDIDO 25% */}
             <div className="col-span-1 lg:col-span-5 h-full flex flex-col min-h-[400px]">
                 {/* Usar displayPrice (preço atual) e displayTrend (% de mudança diária) */}
-                <NexusQuantumAdvisor
+                <NexusAssistant
                   activeSymbol={activeSymbol}
                   scoreResult={scoreResult}
                 />

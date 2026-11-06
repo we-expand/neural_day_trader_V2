@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bell, LogOut, Search, ShieldCheck, AlertTriangle, User } from 'lucide-react';
+import { Bell, LogOut, Search, ShieldCheck, AlertTriangle, User, Loader2, Menu } from 'lucide-react';
 import { useTradingContext } from '../../contexts/TradingContext';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { BrokerConnectionStatus } from '../BrokerConnectionStatus';
@@ -9,12 +9,24 @@ interface HeaderProps {
   isAdmin?: boolean;
   onLogout?: () => void;
   user?: { name: string; email: string; role: string } | null;
+  onOpenMobileMenu?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user }) => {
-  const { config } = useTradingContext();
+export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, user, onOpenMobileMenu }) => {
+  // 🔴 2026-09-09: `isLiveConnected`/`disconnectLive` centralizados no
+  // TradingContext (fonte de verdade real: `broker_credentials`, mesma que
+  // o llm-active-brain usa) -- usado também pelo toggle do AITrader.tsx,
+  // pra não duplicar polling nem ter 2 lógicas de desconexão divergentes.
+  const { isLiveConnected, isDisconnectingLive, disconnectLive } = useTradingContext();
   const { fullName, profile, avatarUrl } = useUserProfile();
-  const isLive = config.executionMode === 'LIVE';
+  const isLive = isLiveConnected;
+  const disconnecting = isDisconnectingLive;
+
+  const handleDisconnect = async () => {
+    if (isDisconnectingLive) return;
+    if (!window.confirm('Desconectar a conta real da corretora? Nenhuma posição já aberta será fechada — só a capacidade de enviar ordem nova é removida.')) return;
+    await disconnectLive();
+  };
 
   const getViewTitle = (view: string) => {
     switch (view) {
@@ -36,17 +48,32 @@ export const Header: React.FC<HeaderProps> = ({ currentView, isAdmin, onLogout, 
 
   return (
     <header id="app-header" className="min-h-[4rem] h-auto py-2 border-b border-white/5 bg-black/50 backdrop-blur-md px-4 md:px-6 flex flex-wrap md:flex-nowrap items-center justify-between sticky top-0 z-40 gap-y-2">
-      {/* Left: Mode Badge only — no view title duplicating sidebar */}
-      <div className="flex items-center gap-4 shrink-0">
-        {/* Execution Mode Badge */}
-        <div className={`flex items-center gap-2 px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
-            isLive 
-            ? 'bg-red-500/10 border border-red-500/30 text-red-400' 
-            : 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
+      {/* Left: hambúrguer (só mobile) + Mode Badge — no view title duplicating sidebar */}
+      <div className="flex items-center gap-3 shrink-0">
+        {onOpenMobileMenu && (
+          <button
+            type="button"
+            onClick={onOpenMobileMenu}
+            className="md:hidden p-2 -ml-1 text-slate-300 hover:text-white rounded-lg hover:bg-white/5"
+            aria-label="Abrir menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
+        {/* Execution Mode Badge -- clicável só quando LIVE, pra desconectar */}
+        <button
+          type="button"
+          onClick={isLive ? handleDisconnect : undefined}
+          disabled={!isLive || disconnecting}
+          title={isLive ? 'Clique pra desconectar da corretora real' : undefined}
+          className={`flex items-center gap-2 px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+            isLive
+            ? 'bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 cursor-pointer'
+            : 'bg-amber-500/10 border border-amber-500/30 text-amber-400 cursor-default'
         }`}>
-            {isLive ? <AlertTriangle className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
-            {isLive ? 'LIVE' : 'DEMO'}
-        </div>
+            {disconnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : isLive ? <AlertTriangle className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
+            {disconnecting ? 'Desconectando...' : isLive ? 'LIVE' : 'DEMO'}
+        </button>
       </div>
       
       {/* Right: Actions & Profile */}

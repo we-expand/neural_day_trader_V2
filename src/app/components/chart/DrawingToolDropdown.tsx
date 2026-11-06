@@ -71,7 +71,12 @@ export function DrawingToolDropdown({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -10 }}
       transition={{ duration: 0.15 }}
-      className="fixed z-[200] bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl overflow-hidden"
+      // z-[230]: precisa ficar ACIMA do painel de compra/venda (OrderTicket,
+      // z-[220] em ChartView.tsx) -- em telas estreitas os dois se
+      // sobrepunham e um clique destinado a este dropdown podia cair no
+      // botão SELL/BUY por baixo, disparando ordem sem intenção (achado
+      // real 2026-08-31, ver SESSAO_2026-08-31_MENU_DESENHO_PRESO_NO_GRAFICO.md).
+      className="fixed z-[230] bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl overflow-hidden"
       style={{
         top: position.top,
         left: position.left,
@@ -202,7 +207,9 @@ export function EmojiPicker({ anchorEl, onClose, onSelectEmoji }: EmojiPickerPro
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -10 }}
       transition={{ duration: 0.15 }}
-      className="fixed z-[200] bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl overflow-hidden"
+      // z-[230]: mesmo motivo do outro dropdown acima (fica acima do
+      // painel de trade z-[220]).
+      className="fixed z-[230] bg-[#2a2a2a] border border-gray-700 rounded-lg shadow-2xl overflow-hidden"
       style={{
         top: position.top,
         left: position.left,

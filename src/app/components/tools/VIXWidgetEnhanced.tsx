@@ -92,7 +92,15 @@ export function VIXWidgetEnhanced() {
     try {
       const marketData = await getRealMarketData('VIX');
 
-      const primaryValue = marketData.price ?? 0;
+      // 🐛 FIX 2026-11-05 (Cleber: "porque o nosso VIX está zerado?"): com a MetaAPI fora (504), `price` vinha
+      // nulo e `?? 0` mostrava VIX = 0,00 (e gravava zero no histórico). Sem cotação real não existe valor:
+      // mantém o último valor real, marca "sem dado" e não grava nada no histórico nem dispara alerta.
+      if (!(typeof marketData.price === 'number' && marketData.price > 0) || !marketData.isRealData) {
+        setIsRealData(false);
+        setIsLoading(false);
+        return;
+      }
+      const primaryValue = marketData.price;
       const primaryChange = marketData.change ?? 0;
       const primaryChangePercent = marketData.changePercent ?? 0;
 
@@ -463,8 +471,13 @@ export function VIXWidgetEnhanced() {
             {/* VIX Value */}
             <div className="text-center mb-3">
               <div className="text-5xl font-mono font-bold text-white mb-1">
-                {currentVIX.toFixed(2)}
+                {currentVIX > 0 ? currentVIX.toFixed(2) : '—'}
               </div>
+              {!isRealData && (
+                <div className="text-xs text-amber-400 mb-1">
+                  {currentVIX > 0 ? 'Sem cotação nova — mostrando o último valor real' : 'Sem dado real da corretora no momento'}
+                </div>
+              )}
               <div className="text-xs text-slate-500 uppercase tracking-wider font-bold">
                 Índice de Volatilidade
               </div>

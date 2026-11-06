@@ -1,0 +1,55 @@
+{
+  "total_trades_input": 166,
+  "skipped_sem_mapeamento_sessao": 0,
+  "real": {
+    "n": 166,
+    "netSum": -19.017846800255604,
+    "wins": 41,
+    "winRate": 0.2469879518072289
+  },
+  "real_por_modo": {
+    "FIXO": {
+      "n": 22,
+      "netSum": -2.454542418287537
+    },
+    "DINAMICO": {
+      "n": 144,
+      "netSum": -16.563304381968074
+    }
+  },
+  "replicaA_com_teto_tp": {
+    "n": 123,
+    "skipped": 43,
+    "netSum": -2.6793228499757102,
+    "wins": 48,
+    "winRate": 0.3902439024390244
+  },
+  "replicaB_sem_teto_tp": {
+    "n": 110,
+    "skipped": 56,
+    "netSum": -2.954851037112415,
+    "wins": 47,
+    "winRate": 0.42727272727272725
+  },
+  "fidelidade_replicaA_vs_real_apenas_dinamico": {
+    "n": 110,
+    "real_netSum": -15.22887741947848,
+    "replicaA_netSum": 3.2379794640580846
+  },
+  "comparacao_pareada_A_vs_B": {
+    "n_pares": 110,
+    "net_real_desses_pares": -15.22887741947848,
+    "net_replicaA": 3.2379794640580846,
+    "net_replicaB": -2.954851037112415,
+    "delta_B_menos_A": -6.1928305011705,
+    "trades_melhores_em_B": 0,
+    "trades_piores_em_B": 3,
+    "trades_iguais": 107,
+    "maior_outlier_delta": {
+      "id": "8503d0cf-96df-4740-8b15-e0ad731ae807",
+      "symbol": "ETHUSD",
+      "deltaA_B": 0
+    },
+    "delta_excluindo_maior_outlier": -6.192830501170499
+  }
+}
