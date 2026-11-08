@@ -448,13 +448,13 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
 
       {/* Header */}
       {!compact && (
-      <div className="flex items-start gap-4 mb-6 pb-6 border-b border-white/5 relative z-10">
+      <div className="flex flex-wrap items-start gap-4 mb-6 pb-6 border-b border-white/5 relative z-10">
         {/* Icon */}
         <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-fuchsia-600 flex items-center justify-center shrink-0 shadow-lg shadow-purple-500/20">
           <Brain className="w-6 h-6 text-white" />
         </div>
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold tracking-tight text-white uppercase flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white uppercase flex items-center gap-3">
             AI Trader
           </h1>
           <p className="text-slate-400 mt-1 tracking-wide font-light">
@@ -462,10 +462,10 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
           </p>
         </div>
         
-        {/* Action Buttons */}
-        <div className="flex items-center gap-3">
+        {/* Action Buttons — quebram linha no mobile em vez de vazar à direita */}
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           {/* LEFT SIDE - AI Control & MT5 */}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {/* START/STOP AI Button */}
             <button
               onClick={toggleAI}
@@ -506,7 +506,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
           <div className="flex-1"></div>
 
           {/* RIGHT SIDE - Workspace & Settings */}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {/* Workspace Selector */}
             <WorkspaceSelector
               workspaces={workspaces}
