@@ -594,6 +594,12 @@ const PositionLabelLineOverlay: OverlayTemplate = {
         // desenho (que fica sobreposta na borda esquerda do canvas).
         attrs: { x: 56, y: y - 4, text: label, align: 'left', baseline: 'bottom' },
       },
+      // 🆕 2026-11-08: "✕" na linha de ENTRADA da posição = fechar a posição (clique tratado em onClick, figureKey 'closeX').
+      ...(/^[▲▼]/.test(String(label)) ? [{
+        type: 'text', key: 'closeX', ignoreEvent: false,
+        attrs: { x: bounding.width - 70, y: y - 3, text: '✕', align: 'center', baseline: 'bottom' },
+        styles: { color: '#ffffff', size: 14, weight: 'bold', backgroundColor: 'rgba(239,68,68,0.95)', borderRadius: 3, paddingLeft: 7, paddingRight: 7, paddingTop: 2, paddingBottom: 2 },
+      }] : []),
     ];
   },
 };
@@ -1604,7 +1610,7 @@ export function ChartView({
   onInitialActionConsumed?: () => void;
 } = {}) {
   // 🔥 NOVO: Sincronizar com contexto global
-  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers, cancelManualPendingOrder, updateManualPendingOrderPrice, setOpenPositionStop, setOpenPositionTarget } = useTradingContext();
+  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers, cancelManualPendingOrder, updateManualPendingOrderPrice, setOpenPositionStop, setOpenPositionTarget, closeManualPosition, closeLiveManualPosition } = useTradingContext();
   const { user } = useAuth();
 
   // ❌ REMOVIDO: useMarketData() - agora usamos apenas os candles do gráfico
@@ -1631,6 +1637,8 @@ export function ChartView({
   // arraste, nada era gravado e o proximo tick redesenhava no valor antigo. Refs pra os handlers (criados uma vez) sempre chamarem a versao atual.
   const setOpenPositionStopRef = useRef(setOpenPositionStop);
   setOpenPositionStopRef.current = setOpenPositionStop;
+  const closePositionRef = useRef({ closeManualPosition, closeLiveManualPosition });
+  closePositionRef.current = { closeManualPosition, closeLiveManualPosition };
   const setOpenPositionTargetRef = useRef(setOpenPositionTarget);
   setOpenPositionTargetRef.current = setOpenPositionTarget;
   // deslocamento VISUAL (nudge) aplicado a cada linha no ultimo desenho: o valor arrastado inclui esse offset, que nao e preco real
@@ -5484,13 +5492,57 @@ export function ChartView({
         // texto de P&L ao vivo) em vez de remove+recria — é isto que
         // elimina o piscar a cada tick, já que o `points`/`extendData` mudam
         // sem a linha sumir do gráfico entre um frame e outro.
+        positionLineNudgeRef.current.set(entryId, displayEntryPrice - order.price);
         if (entryExists) {
-          chart.overrideOverlay({ id: entryId, points: [{ value: displayEntryPrice }], extendData: entryExtendData });
+          chart.overrideOverlay(isLineBeingDragged(entryId) ? { id: entryId, extendData: entryExtendData } : { id: entryId, points: [{ value: displayEntryPrice }], extendData: entryExtendData });
         } else {
           chart.createOverlay({
             name: 'positionLabelLine',
             id: entryId,
             points: [{ value: displayEntryPrice }],
+            // 🆕 2026-11-08 (Cleber: "arrastando o preço eu consiga criar um alvo ou um stop"): arrastar a linha de ENTRADA
+            // cria o stop (soltando do lado da perda) ou o alvo (do lado do ganho); a linha de entrada volta ao lugar.
+            onPressedMoveStart: () => { draggingPositionLineRef.current = { id: entryId, at: Date.now() }; return false; },
+            onClick: (event: any) => {
+              if (event?.figureKey !== 'closeX') return false;
+              const live = activeOrdersRef.current.find((o: any) => o.id === order.id) ?? order;
+              const price = currentPriceRef.current;
+              if (!window.confirm(`Fechar a posição ${live.side === 'LONG' ? 'COMPRA' : 'VENDA'} de ${live.symbol} agora?`)) return false;
+              const brokerId = (live as any).brokerPositionId ?? (live as any).broker_position_id;
+              if (brokerId) {
+                void closePositionRef.current.closeLiveManualPosition(live.id).then((r) => {
+                  if (r.success) toast.success('Posição real fechada', { description: live.symbol });
+                  else toast.error('Falha ao fechar na corretora', { description: r.error });
+                });
+              } else if (price != null) {
+                closePositionRef.current.closeManualPosition(live.id, price);
+                toast.success('Posição fechada', { description: live.symbol });
+              }
+              return false;
+            },
+            onPressedMoveEnd: (event: any) => {
+              draggingPositionLineRef.current = null;
+              const dragged = event.overlay?.points?.[0]?.value;
+              const price = currentPriceRef.current;
+              const live = activeOrdersRef.current.find((o: any) => o.id === order.id) ?? order;
+              const rerender = () => renderPositionOverlays(activeOrdersRef.current, selectedSymbol, pendingOrdersRef.current);
+              if (typeof dragged !== 'number' || price == null) { rerender(); return false; }
+              const level = dragged - (positionLineNudgeRef.current.get(entryId) ?? 0);
+              const longSide = live.side === 'LONG';
+              const lossSide = longSide ? level < live.price : level > live.price;
+              const prec = getPrecisionForSymbol(live.symbol, live.price);
+              if (Math.abs(level - live.price) < 1e-9) { rerender(); return false; }
+              const result = lossSide
+                ? setOpenPositionStopRef.current(live.id, level, price)
+                : setOpenPositionTargetRef.current(live.id, level, price);
+              if (result.success) {
+                if (!('live' in result && result.live)) toast.success(lossSide ? 'Stop criado' : 'Alvo criado', { description: `${live.symbol} @ ${level.toFixed(prec)}` });
+              } else {
+                toast.error(lossSide ? 'Stop recusado' : 'Alvo recusado', { description: result.error });
+              }
+              rerender();
+              return false;
+            },
             styles: {
               line: { color: isLong ? '#22c55e' : '#ef4444', style: 'solid', size: 1.5 },
               text: {
