@@ -3761,6 +3761,31 @@ export function useApexLogic(
     return { success: true };
   }, [addLog, modifyLivePositionLevels]);
 
+  // 🆕 2026-11-08 (Cleber: "xizinho em cima da linha do stop/alvo"): remove o stop ou o alvo de uma posição DEMO (grava null em ai_trades).
+  // Posição REAL fica de fora: tirar o nível na corretora exige enviar "sem stop/alvo" ao MT5 (o modifyPosition atual preserva o nível
+  // existente), então por ora recusa com instrução clara em vez de fingir que removeu.
+  const clearOpenPositionLevel = useCallback((tradeId: string, which: 'stop' | 'target'): { success: boolean; error?: string } => {
+    const order = activeOrdersRef.current.find((o) => o.id === tradeId);
+    if (!order) return { success: false, error: 'Posição não encontrada' };
+    if (resolveBrokerPositionId(order)) {
+      return { success: false, error: `Posição real: remova o ${which === 'stop' ? 'stop' : 'alvo'} direto no MetaTrader 5 (a remoção pela plataforma ainda não é suportada).` };
+    }
+    const prev = which === 'stop' ? { sl: order.sl, originalSl: order.originalSl, slIsReal: order.slIsReal } : { tp: order.tp, tpIsReal: order.tpIsReal };
+    setActiveOrders((prevOrders) => prevOrders.map((o) => (o.id === tradeId
+      ? (which === 'stop' ? { ...o, sl: 0, originalSl: 0, slIsReal: false } : { ...o, tp: 0, tpIsReal: false })
+      : o)));
+    const op = which === 'stop'
+      ? persistenceRef.current.updateTradeStopLoss(tradeId, null)
+      : persistenceRef.current.updateTradeTakeProfit(tradeId, null);
+    void op.then((ok) => {
+      if (ok) return;
+      addLog(`⚠️ ${which === 'stop' ? 'Stop' : 'Alvo'} NÃO removido (${order.symbol}): voltou ao valor anterior`);
+      setActiveOrders((prevOrders) => prevOrders.map((o) => (o.id === tradeId ? { ...o, ...prev } : o)));
+    });
+    addLog(`✖️ ${which === 'stop' ? 'STOP' : 'ALVO'} removido: ${order.symbol} ${order.side}`);
+    return { success: true };
+  }, [addLog]);
+
   const closeManualPosition = useCallback((tradeId: string, currentPrice: number) => {
     const order = activeOrdersRef.current.find(o => o.id === tradeId);
     if (!order) return;
@@ -4180,6 +4205,7 @@ export function useApexLogic(
     closeManualPosition,
     setOpenPositionStop,
     setOpenPositionTarget,
+    clearOpenPositionLevel,
     closeLiveManualPosition,
     pendingOrders,
     openManualPendingOrder,

@@ -383,7 +383,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
    * 2026-08-19: break-even/emergency-stop do Pyramiding logavam sucesso mas
    * não protegiam nada de verdade, porque o SL novo nunca chegava ao banco.
    */
-  const updateTradeStopLoss = useCallback(async (tradeId: string, newSl: number): Promise<boolean> => {
+  const updateTradeStopLoss = useCallback(async (tradeId: string, newSl: number | null): Promise<boolean> => {
     if (!options.enabled) return false;
     const dbTradeId = tradeDbIdsRef.current.get(tradeId) || tradeId;
     try {
@@ -398,7 +398,7 @@ export function useAIPersistence(options: UseAIPersistenceOptions) {
   }, [options.enabled, options.onPersistenceError]);
 
   /** 🔴 2026-10-21: alvo (take profit) digitado numa posicao ja aberta -- mesmo desenho de updateTradeStopLoss. */
-  const updateTradeTakeProfit = useCallback(async (tradeId: string, newTp: number): Promise<boolean> => {
+  const updateTradeTakeProfit = useCallback(async (tradeId: string, newTp: number | null): Promise<boolean> => {
     if (!options.enabled) return false;
     const dbTradeId = tradeDbIdsRef.current.get(tradeId) || tradeId;
     try {

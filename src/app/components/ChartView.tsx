@@ -594,11 +594,11 @@ const PositionLabelLineOverlay: OverlayTemplate = {
         // desenho (que fica sobreposta na borda esquerda do canvas).
         attrs: { x: 56, y: y - 4, text: label, align: 'left', baseline: 'bottom' },
       },
-      // 🆕 2026-11-08: "✕" na linha de ENTRADA da posição = fechar a posição (clique tratado em onClick, figureKey 'closeX').
-      ...(/^[▲▼]/.test(String(label)) ? [{
+      // 🆕 2026-11-08: "✕" delicado na linha do STOP (⛔/🔒) e do ALVO (🎯) = remove o nível (clique tratado em onClick, figureKey 'closeX').
+      ...(/^[⛔🔒🎯]/u.test(String(label)) ? [{
         type: 'text', key: 'closeX', ignoreEvent: false,
-        attrs: { x: bounding.width - 70, y: y - 3, text: '✕', align: 'center', baseline: 'bottom' },
-        styles: { color: '#ffffff', size: 14, weight: 'bold', backgroundColor: 'rgba(239,68,68,0.95)', borderRadius: 3, paddingLeft: 7, paddingRight: 7, paddingTop: 2, paddingBottom: 2 },
+        attrs: { x: bounding.width - 22, y: y - 2, text: '✕', align: 'center', baseline: 'bottom' },
+        styles: { color: 'rgba(255,255,255,0.9)', size: 9, weight: 'normal', backgroundColor: 'rgba(15,23,42,0.75)', borderColor: 'rgba(255,255,255,0.35)', borderSize: 1, borderRadius: 3, paddingLeft: 4, paddingRight: 4, paddingTop: 1, paddingBottom: 1 },
       }] : []),
     ];
   },
@@ -1610,7 +1610,7 @@ export function ChartView({
   onInitialActionConsumed?: () => void;
 } = {}) {
   // 🔥 NOVO: Sincronizar com contexto global
-  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers, cancelManualPendingOrder, updateManualPendingOrderPrice, setOpenPositionStop, setOpenPositionTarget, closeManualPosition, closeLiveManualPosition } = useTradingContext();
+  const { selectedAsset, setSelectedAsset, activeOrders, pendingOrders, checkPendingOrderTriggers, cancelManualPendingOrder, updateManualPendingOrderPrice, setOpenPositionStop, setOpenPositionTarget, clearOpenPositionLevel } = useTradingContext();
   const { user } = useAuth();
 
   // ❌ REMOVIDO: useMarketData() - agora usamos apenas os candles do gráfico
@@ -1637,8 +1637,8 @@ export function ChartView({
   // arraste, nada era gravado e o proximo tick redesenhava no valor antigo. Refs pra os handlers (criados uma vez) sempre chamarem a versao atual.
   const setOpenPositionStopRef = useRef(setOpenPositionStop);
   setOpenPositionStopRef.current = setOpenPositionStop;
-  const closePositionRef = useRef({ closeManualPosition, closeLiveManualPosition });
-  closePositionRef.current = { closeManualPosition, closeLiveManualPosition };
+  const clearOpenPositionLevelRef = useRef(clearOpenPositionLevel);
+  clearOpenPositionLevelRef.current = clearOpenPositionLevel;
   const setOpenPositionTargetRef = useRef(setOpenPositionTarget);
   setOpenPositionTargetRef.current = setOpenPositionTarget;
   // deslocamento VISUAL (nudge) aplicado a cada linha no ultimo desenho: o valor arrastado inclui esse offset, que nao e preco real
@@ -5503,23 +5503,6 @@ export function ChartView({
             // 🆕 2026-11-08 (Cleber: "arrastando o preço eu consiga criar um alvo ou um stop"): arrastar a linha de ENTRADA
             // cria o stop (soltando do lado da perda) ou o alvo (do lado do ganho); a linha de entrada volta ao lugar.
             onPressedMoveStart: () => { draggingPositionLineRef.current = { id: entryId, at: Date.now() }; return false; },
-            onClick: (event: any) => {
-              if (event?.figureKey !== 'closeX') return false;
-              const live = activeOrdersRef.current.find((o: any) => o.id === order.id) ?? order;
-              const price = currentPriceRef.current;
-              if (!window.confirm(`Fechar a posição ${live.side === 'LONG' ? 'COMPRA' : 'VENDA'} de ${live.symbol} agora?`)) return false;
-              const brokerId = (live as any).brokerPositionId ?? (live as any).broker_position_id;
-              if (brokerId) {
-                void closePositionRef.current.closeLiveManualPosition(live.id).then((r) => {
-                  if (r.success) toast.success('Posição real fechada', { description: live.symbol });
-                  else toast.error('Falha ao fechar na corretora', { description: r.error });
-                });
-              } else if (price != null) {
-                closePositionRef.current.closeManualPosition(live.id, price);
-                toast.success('Posição fechada', { description: live.symbol });
-              }
-              return false;
-            },
             onPressedMoveEnd: (event: any) => {
               draggingPositionLineRef.current = null;
               const dragged = event.overlay?.points?.[0]?.value;
@@ -5613,6 +5596,13 @@ export function ChartView({
               // precisar calcular de cabeça.
               extendData: slExtendData,
               // 🔴 2026-10-21: soltar o arraste GRAVA o stop (mesma regra do campo digitavel da boleta: venda acima do preco, compra abaixo).
+              onClick: (event: any) => {
+                if (event?.figureKey !== 'closeX') return false;
+                const r = clearOpenPositionLevelRef.current(order.id, 'stop');
+                if (r.success) toast.success('Stop removido', { description: order.symbol });
+                else toast.error('Não foi possível remover o stop', { description: r.error });
+                return false;
+              },
               onPressedMoveStart: () => { draggingPositionLineRef.current = { id: slId, at: Date.now() }; console.log('[ChartView] arraste do STOP: iniciou', slId); return false; },
               onPressedMoveEnd: (event: any) => {
                 draggingPositionLineRef.current = null;
@@ -5682,6 +5672,13 @@ export function ChartView({
               // Ganho potencial em dólar (sempre positivo, é o alvo) + pontos.
               extendData: tpExtendData,
               // 🔴 2026-10-21: soltar o arraste GRAVA o alvo (venda: abaixo do preco; compra: acima).
+              onClick: (event: any) => {
+                if (event?.figureKey !== 'closeX') return false;
+                const r = clearOpenPositionLevelRef.current(order.id, 'target');
+                if (r.success) toast.success('Alvo removido', { description: order.symbol });
+                else toast.error('Não foi possível remover o alvo', { description: r.error });
+                return false;
+              },
               onPressedMoveStart: () => { draggingPositionLineRef.current = { id: tpId, at: Date.now() }; console.log('[ChartView] arraste do ALVO: iniciou', tpId); return false; },
               onPressedMoveEnd: (event: any) => {
                 draggingPositionLineRef.current = null;

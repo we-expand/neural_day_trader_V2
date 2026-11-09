@@ -66,6 +66,7 @@ interface TradingContextType {
   closeManualPosition: (tradeId: string, currentPrice: number) => void;
   setOpenPositionStop: (tradeId: string, newStop: number, currentPrice: number) => { success: boolean; error?: string; live?: boolean };
   setOpenPositionTarget: (tradeId: string, newTp: number, currentPrice: number) => { success: boolean; error?: string; live?: boolean };
+  clearOpenPositionLevel: (tradeId: string, which: 'stop' | 'target') => { success: boolean; error?: string };
   closeLiveManualPosition: (tradeId: string) => Promise<{ success: boolean; error?: string }>;
   pendingOrders: PendingOrderVisual[];
   openManualPendingOrder: (params: {
@@ -624,6 +625,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     closeManualPosition: logic.closeManualPosition,
     setOpenPositionStop: logic.setOpenPositionStop,
     setOpenPositionTarget: logic.setOpenPositionTarget,
+    clearOpenPositionLevel: logic.clearOpenPositionLevel,
     closeLiveManualPosition: logic.closeLiveManualPosition,
     pendingOrders: logic.pendingOrders,
     openManualPendingOrder: logic.openManualPendingOrder,
@@ -715,6 +717,7 @@ export const ApexTradingProvider = ({ children }: { children: ReactNode }) => {
     logic.closeManualPosition,
     logic.setOpenPositionStop,
     logic.setOpenPositionTarget,
+    logic.clearOpenPositionLevel,
     logic.closeLiveManualPosition,
     logic.pendingOrders,
     logic.openManualPendingOrder,
