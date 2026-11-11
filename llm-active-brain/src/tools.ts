@@ -1740,11 +1740,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         const sameSideGroupExposure = openPositions
           .filter((p) => correlatedGroup.includes(p.symbol) && p.side === side)
           .reduce((sum, p) => sum + Number(p.quantity), 0);
-        if (sameSideGroupExposure >= config.mt5MaxCorrelatedNotionalUsd) {
+        if (sameSideGroupExposure >= (config.mt5MaxCorrelatedNotionalUsd * config.mt5LotMultiplier)) {
           { const __blocked = gateResult("EXPOSICAO_CORRELACIONADA", {
             error:
               `Exposicao ${side} combinada no grupo correlacionado (${correlatedGroup.join("/")}) ja e $${sameSideGroupExposure.toFixed(0)} ` +
-              `(teto: $${config.mt5MaxCorrelatedNotionalUsd}). Esses ativos andam juntos -- empilhar mais ${side} em qualquer um deles ` +
+              `(teto: $${(config.mt5MaxCorrelatedNotionalUsd * config.mt5LotMultiplier)}). Esses ativos andam juntos -- empilhar mais ${side} em qualquer um deles ` +
               `e triplicar a MESMA aposta, nao diversificar. Feche alguma posicao do grupo ou opere o lado oposto.`,
           }); if (__blocked) return __blocked; }
         }
@@ -3067,8 +3067,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         }
       }
       const targetRewardUsd = asymActive
-        ? config.mt5AsymRiskUsd * riskScale.scale * (takeProfitPct / stopPct)
-        : config.mt5TargetRewardUsd * (balance / config.mt5ReferenceCapitalUsd) * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1) * riskScale.scale;
+        ? config.mt5AsymRiskUsd * riskScale.scale * (takeProfitPct / stopPct) * config.mt5LotMultiplier
+        : config.mt5TargetRewardUsd * (balance / config.mt5ReferenceCapitalUsd) * (sizeInput === "forte" ? config.mt5HeavyMultiplier : 1) * riskScale.scale * config.mt5LotMultiplier;
       const rawLotsPreCap = takeProfitPct > 0 ? targetRewardUsd / (takeProfitPct * LOT_SIZE[symbol] * quote.price) : 0;
       // 🔴 2026-09-16 (pedido direto do Cleber): jogada FOMC_BTC_PLAY usa
       // sizing por EXPOSIÇÃO NOTIONAL (10% do patrimônio), não por retorno-
@@ -3080,12 +3080,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       let lots = isFomcBtcPlay
         ? (balance * config.fomcBtcPlayExposurePct) / (LOT_SIZE[symbol] * quote.price)
         : rawLotsPreCap;
-      lots = Math.min(lots, config.mt5SafetyMaxLots);
+      lots = Math.min(lots, config.mt5SafetyMaxLots * config.mt5LotMultiplier);
       // 🔴 2026-08-31 (Setup do AI Trader reconectado -- "Lotes Maximos por
       // Trade"): teto do usuario, quando configurado, nunca frouxo o teto de
       // seguranca global (mt5SafetyMaxLots) -- so aperta.
       if (session.userConfig?.maxLotsPerTrade != null) {
-        lots = Math.min(lots, session.userConfig.maxLotsPerTrade);
+        lots = Math.min(lots, session.userConfig.maxLotsPerTrade * config.mt5LotMultiplier);
       }
       lots = Math.round(lots / MIN_LOTS) * MIN_LOTS; // arredonda pro incremento minimo real da plataforma
       if (lots < MIN_LOTS) lots = MIN_LOTS; // nao da pra abrir posicao com lote zero -- MIN_LOTS e o menor lote executavel
@@ -3111,7 +3111,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // desejado, nunca o contrario). Preserva o gate de 2026-08-31: se nem
       // o lote MINIMO cabe dentro do risco maximo, a entrada e recusada.
       let actualRiskUsd = amountUsd * stopPct;
-      const maxRiskUsd = balance * config.mt5MaxRiskPctPerTrade;
+      const maxRiskUsd = balance * config.mt5MaxRiskPctPerTrade * config.mt5LotMultiplier;
       let rewardCappedByRisk = false;
       // 🔴 2026-09-16: FOMC_BTC_PLAY pula este recap por %-de-risco de
       // propósito -- o pedido explícito do Cleber foi expor 10% do
@@ -3138,14 +3138,20 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // Teto absoluto de seguranca em notional -- so deveria disparar em caso
       // degenerado (preco anormal fazendo o lote explodir), o gate de risco
       // acima ja e o limite normal de operacao.
-      if (amountUsd > config.mt5MaxNotionalUsd) {
-        lots = Math.floor(config.mt5MaxNotionalUsd / (LOT_SIZE[symbol] * quote.price) / MIN_LOTS) * MIN_LOTS;
+      if (amountUsd > config.mt5MaxNotionalUsd * config.mt5LotMultiplier) {
+        lots = Math.floor((config.mt5MaxNotionalUsd * config.mt5LotMultiplier) / (LOT_SIZE[symbol] * quote.price) / MIN_LOTS) * MIN_LOTS;
         if (lots < MIN_LOTS) {
           return {
             error: `Exposicao minima possivel para ${symbol} neste preco excede o teto absoluto de seguranca ($${config.mt5MaxNotionalUsd}). Posicao NAO aberta.`,
           };
         }
         amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+      }
+      // 🔴 2026-11-11 (Cleber, teste de replica de 02/09): PISO de tamanho = MIN_LOTS x multiplicador em todo ativo (BTC = 0,02 com 2x).
+      if (config.mt5LotMultiplier > 1 && lots < MIN_LOTS * config.mt5LotMultiplier) {
+        lots = Math.round((MIN_LOTS * config.mt5LotMultiplier) / MIN_LOTS) * MIN_LOTS;
+        amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+        actualRiskUsd = amountUsd * stopPct;
       }
       // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
       // deploy): a checagem de teto do grupo correlacionado (acima, logo
@@ -3164,12 +3170,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           .filter((p) => correlatedGroup.includes(p.symbol) && p.side === side)
           .reduce((sum, p) => sum + Number(p.quantity), 0);
         const projectedExposure = sameSideGroupExposure + amountUsd;
-        if (projectedExposure > config.mt5MaxCorrelatedNotionalUsd) {
+        if (projectedExposure > (config.mt5MaxCorrelatedNotionalUsd * config.mt5LotMultiplier)) {
           { const __blocked = gateResult("EXPOSICAO_CORRELACIONADA_PROJETADA", {
             error:
               `Esta entrada ($${amountUsd.toFixed(0)}) levaria a exposicao ${side} combinada do grupo correlacionado ` +
               `(${correlatedGroup.join("/")}) de $${sameSideGroupExposure.toFixed(0)} para $${projectedExposure.toFixed(0)}, ` +
-              `acima do teto ($${config.mt5MaxCorrelatedNotionalUsd}). Esses ativos andam juntos -- essa entrada sozinha ` +
+              `acima do teto ($${(config.mt5MaxCorrelatedNotionalUsd * config.mt5LotMultiplier)}). Esses ativos andam juntos -- essa entrada sozinha ` +
               `estouraria o limite. Posicao NAO aberta. Reduza o tamanho, feche outra posicao do grupo, ou opere o lado oposto.`,
           }); if (__blocked) return __blocked; }
         }
@@ -3379,7 +3385,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             // o risco de uma entrada de R:R ja pior (BTCUSD 19/10: lote dobrado, -US$4,45 em 6 min).
             if (stopFollowedTarget && wantedLots > lots) {
               const corrRoomUsd = correlatedGroup.length > 1
-                ? config.mt5MaxCorrelatedNotionalUsd - openPositions.filter((o) => correlatedGroup.includes(o.symbol) && o.side === side).reduce((sum, o) => sum + Number(o.quantity), 0)
+                ? (config.mt5MaxCorrelatedNotionalUsd * config.mt5LotMultiplier) - openPositions.filter((o) => correlatedGroup.includes(o.symbol) && o.side === side).reduce((sum, o) => sum + Number(o.quantity), 0)
                 : Number.POSITIVE_INFINITY;
               const ceilings = [
                 config.mt5SafetyMaxLots,
@@ -4032,12 +4038,12 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           .filter((p) => correlatedGroup.includes(p.symbol) && p.side === position.side)
           .reduce((sum, p) => sum + Number(p.quantity), 0);
         const projectedExposure = sameSideGroupExposure + addAmountUsd;
-        if (projectedExposure > config.mt5MaxCorrelatedNotionalUsd) {
+        if (projectedExposure > (config.mt5MaxCorrelatedNotionalUsd * config.mt5LotMultiplier)) {
           return {
             error:
               `Reforco de ${position.symbol} ($${addAmountUsd.toFixed(0)}) levaria a exposicao ${position.side} combinada do grupo correlacionado ` +
               `(${correlatedGroup.join("/")}) de $${sameSideGroupExposure.toFixed(0)} para $${projectedExposure.toFixed(0)}, acima do teto ` +
-              `($${config.mt5MaxCorrelatedNotionalUsd}). Reforco NAO aplicado.`,
+              `($${(config.mt5MaxCorrelatedNotionalUsd * config.mt5LotMultiplier)}). Reforco NAO aplicado.`,
           };
         }
       }
