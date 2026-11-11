@@ -3153,6 +3153,16 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         amountUsd = lots * LOT_SIZE[symbol] * quote.price;
         actualRiskUsd = amountUsd * stopPct;
       }
+      // 🔴 2026-11-11 (Cleber: "perder pouco, ganhar muito"): TETO DURO de perda no stop, em US$, DEPOIS do piso (o piso de
+      // lote tinha empurrado BTC p/ 0,03 e o stop foi a US$ 15,88). Reduz o lote p/ caber (minimo 0,01). 0 = desligado.
+      if (config.mt5HardRiskUsd > 0 && actualRiskUsd > config.mt5HardRiskUsd) {
+        const cappedLots = Math.max(MIN_LOTS, Math.floor(config.mt5HardRiskUsd / stopPct / (LOT_SIZE[symbol] * quote.price) / MIN_LOTS) * MIN_LOTS);
+        if (cappedLots < lots) {
+          lots = Math.round(cappedLots / MIN_LOTS) * MIN_LOTS;
+          amountUsd = lots * LOT_SIZE[symbol] * quote.price;
+          actualRiskUsd = amountUsd * stopPct;
+        }
+      }
       // 🔴 2026-08-30 (achado ao vivo, sessao aa279c75, monitoramento pos-
       // deploy): a checagem de teto do grupo correlacionado (acima, logo
       // apos o teto por simbolo) so soma o que JA esta aberto -- nunca inclui

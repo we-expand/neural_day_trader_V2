@@ -268,7 +268,9 @@ export const config = {
   mt5TargetRewardUsd: Number(process.env.MT5_TARGET_REWARD_USD ?? 5.5),
   // 🔴 2026-11-11 (pedido do Cleber, teste de replica de 02/09): multiplica o TAMANHO de toda entrada (1 BTC -> 2 BTC com 2). Escala o alvo em US$
   // e tambem os tetos de risco/lote/exposicao (senao eles cortariam de volta). 1 = comportamento normal. Rollback: MT5_LOT_MULTIPLIER=1.
-  mt5LotMultiplier: Math.max(0.01, Number(process.env.MT5_LOT_MULTIPLIER ?? 1) || 1),
+  // 2026-11-11: teto duro de perda no stop (US$), aplicado depois do piso de lote. 0 = desligado.
+  mt5HardRiskUsd: Math.max(0, Number(process.env.MT5_HARD_RISK_USD ?? 0) || 0),
+  mt5LotMultiplier:Math.max(0.01, Number(process.env.MT5_LOT_MULTIPLIER ?? 1) || 1),
   // 2026-11-01 (pedido do Cleber, "perde pouco, ganha muito"): MODO ASSIMETRIA. Lote por RISCO fixo em US$
   // (nao mais por ganho-alvo fixo), stop no topo/fundo das ultimas velas de 1H (nunca mais curto que o
   // calculado) e piso de valor trocado por limite de custo sobre o risco. O ALVO continua obedecendo o Setup
