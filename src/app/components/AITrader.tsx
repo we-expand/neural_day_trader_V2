@@ -435,7 +435,7 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
   const drawdownPct = portfolio ? portfolio.currentDrawdown : 0;
 
   // Visual Risk Effect
-  const riskOverlayClass = drawdownPct >= config.dailyLossLimit ? "shadow-[inset_0_0_100px_rgba(220,38,38,0.3)] border-red-900/50" : "";
+  const riskOverlayClass = config.dailyLossLimit > 0 && drawdownPct >= config.dailyLossLimit ? "shadow-[inset_0_0_100px_rgba(220,38,38,0.3)] border-red-900/50" : "";
 
   return (
     <div className={`space-y-6 bg-black min-h-full transition-all duration-500 relative overflow-hidden ${compact ? 'p-4' : 'p-8'} ${riskOverlayClass}`}>
@@ -907,9 +907,9 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 <ShieldAlert className="w-4 h-4" /> Termômetro de Risco
                             </h3>
                             <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                                drawdownPct >= config.dailyLossLimit ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-800 text-slate-300'
+                                config.dailyLossLimit > 0 && drawdownPct >= config.dailyLossLimit ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-800 text-slate-300'
                             }`}>
-                                {(drawdownPct || 0).toFixed(2)}% / {(config.dailyLossLimit || 0).toFixed(2)}%
+                                {(drawdownPct || 0).toFixed(2)}% / {config.dailyLossLimit > 0 ? `${config.dailyLossLimit.toFixed(2)}%` : 'sem limite'}
                             </span>
                             </div>
                             
@@ -917,17 +917,17 @@ export function AITrader({ compact = false, onNavigate, onCreateCustomStrategy }
                                 <div className="h-4 bg-slate-800 rounded-full overflow-hidden relative shadow-inner mb-3">
                                     <div 
                                         className={`h-full transition-all duration-1000 ${
-                                            drawdownPct >= (config.dailyLossLimit - 0.5) ? 'bg-red-600 animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.8)]' : 
-                                            drawdownPct >= (config.dailyLossLimit / 2) ? 'bg-amber-500' :
+                                            config.dailyLossLimit > 0 && drawdownPct >= (config.dailyLossLimit - 0.5) ? 'bg-red-600 animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.8)]' : 
+                                            config.dailyLossLimit > 0 && drawdownPct >= (config.dailyLossLimit / 2) ? 'bg-amber-500' :
                                             drawdownPct >= 0.5 ? 'bg-yellow-400' : 'bg-emerald-500'
                                         }`}
-                                        style={{ width: `${Math.min((drawdownPct / config.dailyLossLimit) * 100, 100)}%` }}
+                                        style={{ width: `${config.dailyLossLimit > 0 ? Math.min((drawdownPct / config.dailyLossLimit) * 100, 100) : 0}%` }}
                                     />
                                     {/* Limite Marcador */}
                                     <div className="absolute top-0 bottom-0 right-0 w-0.5 bg-red-500 z-10 shadow-[0_0_10px_red]"></div>
                                 </div>
                                 <p className="text-[10px] text-slate-500 text-right">
-                                    {drawdownPct >= config.dailyLossLimit ? '⛔ NEGOCIAÇÃO BLOQUEADA PELO GESTOR DE RISCO' : `Hard Stop Diário: ${config.dailyLossLimit}%`}
+                                    {config.dailyLossLimit <= 0 ? 'Limite diário desligado' : drawdownPct >= config.dailyLossLimit ? '⛔ NEGOCIAÇÃO BLOQUEADA PELO GESTOR DE RISCO' : `Hard Stop Diário: ${config.dailyLossLimit}%`}
                                 </p>
                             </div>
                         </div>
