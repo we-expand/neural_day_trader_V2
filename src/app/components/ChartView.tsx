@@ -1276,17 +1276,39 @@ const USER_DRAWINGS_GROUP = 'user_drawings';
 // ponto quando ele cai DENTRO dos candles carregados; ponto desenhado a direita do ultimo candle (futuro) ou antes do primeiro vem SEM timestamp,
 // e a foto antiga o perdia (o desenho nao tinha como ser reposicionado em outro tempo grafico). Aqui o tempo e extrapolado pelo espacamento dos
 // candles na captura, e na restauracao um tempo fora do dataset vira `dataIndex` extrapolado (o timestamp fora do range seria colado no ultimo candle).
-const candleSpacingMs = (list: any[]): number => (list.length > 1 ? Math.max(1, list[list.length - 1].timestamp - list[list.length - 2].timestamp) : 0);
+// 🔴 2026-11-11 (Cleber: "o Fibonacci dá 90 graus quando mudo de tempo gráfico ou de sessão" -- SPX500 1H, ponto C foi parar na borda esquerda): duas causas.
+// (1) o espacamento era o das 2 ultimas velas, que em indices pode ser um buraco (noite/fim de semana); agora e a MEDIANA das ultimas diferencas.
+// (2) ponto restaurado DENTRO do range voltava so com `dataIndex` (sem horario); na proxima troca o horario era reconstruido como
+// `list[0].timestamp + idx*ms`, o que assume velas igualmente espacadas -- falso em ativo com buraco -- e o ponto derivava. Agora o horario vem da propria vela.
+const candleSpacingMs = (list: any[]): number => {
+  if (list.length < 2) return 0;
+  const diffs: number[] = [];
+  for (let i = Math.max(1, list.length - 60); i < list.length; i++) {
+    const d = list[i].timestamp - list[i - 1].timestamp;
+    if (d > 0) diffs.push(d);
+  }
+  if (diffs.length === 0) return 0;
+  diffs.sort((a, b) => a - b);
+  return Math.max(1, diffs[diffs.length >> 1]);
+};
 const capturePointsForSnapshot = (points: any, list: any[]): any => {
   if (!Array.isArray(points) || list.length === 0) return points;
   const ms = candleSpacingMs(list);
   return points.map((p: any) => {
     if (typeof p?.timestamp === 'number') return { timestamp: p.timestamp, value: p.value };
-    if (typeof p?.dataIndex === 'number' && ms > 0) {
-      const ts = p.dataIndex >= list.length
-        ? list[list.length - 1].timestamp + (p.dataIndex - (list.length - 1)) * ms
-        : list[0].timestamp + p.dataIndex * ms;
-      return { timestamp: ts, value: p.value };
+    if (typeof p?.dataIndex === 'number') {
+      // dentro do range: horario REAL da vela (nunca extrapolar por espacamento igual)
+      if (p.dataIndex >= 0 && p.dataIndex < list.length && typeof list[p.dataIndex]?.timestamp === 'number') {
+        return { timestamp: list[p.dataIndex].timestamp, value: p.value };
+      }
+      if (ms > 0) {
+        const ts = p.dataIndex >= list.length
+          ? list[list.length - 1].timestamp + (p.dataIndex - (list.length - 1)) * ms
+          : list[0].timestamp + p.dataIndex * ms;
+        return { timestamp: ts, value: p.value };
+      }
+      // sem como converter: mantem o dataIndex em vez de perder o ponto (ponto sem horario E sem indice cai em x=0, a borda esquerda)
+      return { dataIndex: p.dataIndex, value: p.value };
     }
     return { timestamp: p?.timestamp, value: p?.value };
   });
@@ -1311,8 +1333,11 @@ const restorePointsFromSnapshot = (points: any, list: any[]): any => {
         const mid = (lo + hi + 1) >> 1;
         if (list[mid].timestamp <= ts) lo = mid; else hi = mid - 1;
       }
-      return { dataIndex: lo, value: p.value };
+      // devolve o horario REAL da vela junto do indice: o ponto fica ancorado no tempo (e a proxima captura nao precisa adivinhar)
+      return { timestamp: list[lo].timestamp, dataIndex: lo, value: p.value };
     }
+    // sem horario: preserva o dataIndex se houver (antes virava `timestamp: undefined` e o ponto caia em x=0)
+    if (typeof p?.dataIndex === 'number') return { dataIndex: p.dataIndex, value: p?.value };
     return { timestamp: ts, value: p?.value };
   });
 };
