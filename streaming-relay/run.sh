@@ -6,4 +6,4 @@ set -a
 cd "$(dirname "$0")"
 source .env
 set +a
-exec /opt/homebrew/bin/node dist/streaming-relay/src/index.js
+exec /opt/homebrew/bin/node dist/index.js

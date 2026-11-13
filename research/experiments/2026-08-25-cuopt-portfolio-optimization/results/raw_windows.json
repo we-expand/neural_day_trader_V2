@@ -1,0 +1,83 @@
+[
+  {
+    "strategy": "sequencial",
+    "window": 0,
+    "trades": 60,
+    "avgPositionsPerCycle": 1,
+    "netPercentTotal": -5.887771318464669,
+    "avgNetPercent": -0.09812952197441115,
+    "sharpe": -0.06619226391351092
+  },
+  {
+    "strategy": "aleatorio",
+    "window": 0,
+    "trades": 117,
+    "avgPositionsPerCycle": 1.95,
+    "netPercentTotal": -17.464793924524894,
+    "avgNetPercent": -0.14927174294465723,
+    "sharpe": -0.09947494735571923
+  },
+  {
+    "strategy": "milp",
+    "window": 0,
+    "trades": 137,
+    "avgPositionsPerCycle": 2.283333333333333,
+    "netPercentTotal": -21.62310610474844,
+    "avgNetPercent": -0.15783289127553607,
+    "sharpe": -0.11041137092716558
+  },
+  {
+    "strategy": "sequencial",
+    "window": 1,
+    "trades": 60,
+    "avgPositionsPerCycle": 1,
+    "netPercentTotal": -1.3725633073644488,
+    "avgNetPercent": -0.022876055122740813,
+    "sharpe": -0.012076766202324058
+  },
+  {
+    "strategy": "aleatorio",
+    "window": 1,
+    "trades": 120,
+    "avgPositionsPerCycle": 2,
+    "netPercentTotal": -6.19870316703342,
+    "avgNetPercent": -0.0516558597252785,
+    "sharpe": -0.027670369062232213
+  },
+  {
+    "strategy": "milp",
+    "window": 1,
+    "trades": 149,
+    "avgPositionsPerCycle": 2.4833333333333334,
+    "netPercentTotal": -0.4599622517014813,
+    "avgNetPercent": -0.0030869949778622907,
+    "sharpe": -0.001670618125962171
+  },
+  {
+    "strategy": "sequencial",
+    "window": 2,
+    "trades": 54,
+    "avgPositionsPerCycle": 1,
+    "netPercentTotal": -11.719707055209962,
+    "avgNetPercent": -0.21703161213351782,
+    "sharpe": -0.21311774026810146
+  },
+  {
+    "strategy": "aleatorio",
+    "window": 2,
+    "trades": 109,
+    "avgPositionsPerCycle": 2,
+    "netPercentTotal": -11.922570366253991,
+    "avgNetPercent": -0.10938137950691734,
+    "sharpe": -0.11126909789498796
+  },
+  {
+    "strategy": "milp",
+    "window": 2,
+    "trades": 126,
+    "avgPositionsPerCycle": 2.3278688524590163,
+    "netPercentTotal": -10.768784916272558,
+    "avgNetPercent": -0.08546654695454411,
+    "sharpe": -0.08438536784253738
+  }
+]

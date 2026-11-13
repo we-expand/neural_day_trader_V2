@@ -52,8 +52,20 @@ const SUITES = [
     entry: 'src/app/services/risk/__validate__costclass__.ts',
   },
   {
+    name: 'Custo de execução REALIZADO — fechamento paga spread (2026-08-23)',
+    entry: 'src/app/services/risk/__validate__execcost__.ts',
+  },
+  {
+    name: 'Controles de fricção — teto de alavancagem, cooldown por símbolo, fator de realização (2026-08-25)',
+    entry: 'src/app/services/risk/__validate__friction__.ts',
+  },
+  {
     name: 'Diagnóstico de eficiência de saída (Componente 5 do cérebro de execução)',
     entry: 'src/app/services/analysis/__validate__.ts',
+  },
+  {
+    name: 'Pivôs clássicos do último pregão — UKOUSD real contra as 7 linhas do MT5 do Cleber (2026-10-08)',
+    entry: 'src/app/services/analysis/__validate__pivots__.ts',
   },
   {
     name: 'Expectancy Engine — expectativa, risco de ruína, Kelly honesto (Bloco C, cérebro cognitivo)',
@@ -82,6 +94,10 @@ const SUITES = [
   {
     name: 'Cooldown pós-perdas-consecutivas + limite rígido de trades/dia (RISK_MODULE_SPEC.md 3.3/3.4)',
     entry: 'src/app/services/risk/__validate__cooldown__.ts',
+  },
+  {
+    name: 'Comissionamento do Programa de Parceiros IB — a conta fecha em todo cenário (2026-08-18)',
+    entry: 'src/app/services/partners/__validate__.ts',
   },
 ];
 
@@ -121,7 +137,14 @@ for (const suite of SUITES) {
   try {
     execFileSync(
       'npx',
-      ['esbuild', suite.entry, '--bundle', '--platform=node', '--format=esm', `--outfile=${out}`],
+      [
+        'esbuild', suite.entry, '--bundle', '--platform=node', '--format=esm', `--outfile=${out}`,
+        // Alguns validadores puxam (transitivamente) o cliente Supabase, cujas deps CJS
+        // (@supabase/node-fetch) fazem require("stream"). Em bundle ESM o esbuild troca
+        // isso por __require, que o Node recusa ("Dynamic require ... is not supported").
+        // O banner devolve um `require` real; não altera a lógica de nenhuma asserção.
+        '--banner:js=import { createRequire as __ndtCreateRequire } from "node:module"; const require = __ndtCreateRequire(import.meta.url);',
+      ],
       { encoding: 'utf8', stdio: 'pipe' },
     );
     run('node', [out]);

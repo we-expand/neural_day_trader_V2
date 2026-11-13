@@ -156,6 +156,15 @@ export interface PositionSizeInput {
   riskPerTradePercent: number;
   riskProfile: RiskProfileType | string;
   /**
+   * Leverage do instrumento (catálogo `assetDatabase.ts`). Opcional — quando
+   * fornecida, o nocional calculado é clampado por `clampToMarginAffordability`
+   * (2026-08-19) antes de checar `minTradeCapital`, pra não devolver um
+   * tamanho que a conta não tem margem livre pra sustentar. Sem ela,
+   * preserva o comportamento anterior (sem checagem de margem) — não quebra
+   * chamadores existentes do Backtest que ainda não passam essa informação.
+   */
+  leverage?: number;
+  /**
    * Distância do stop em % do preço de entrada (ex: 0,02 = stop a 2% do
    * preço). Quando fornecida, o sizing vira fixed-fractional DE VERDADE:
    * o nocional é dimensionado para que perder o stop perca exatamente
@@ -210,6 +219,7 @@ export function calculatePositionSize({
   riskPerTradePercent,
   riskProfile,
   stopDistancePercent,
+  leverage,
 }: PositionSizeInput): number | null {
   const capital = Math.min(allocatedCapital, currentBalance);
   const riskPercentage = riskPerTradePercent / 100;
@@ -217,14 +227,74 @@ export function calculatePositionSize({
   const riskCapital = capital * riskPercentage * sizeMultiplier;
   const minTradeCapital = 10;
 
-  if (stopDistancePercent !== undefined && stopDistancePercent > 0) {
-    const tradeCapital = riskCapital / stopDistancePercent;
-    return tradeCapital >= minTradeCapital ? tradeCapital : null;
+  let tradeCapital = stopDistancePercent !== undefined && stopDistancePercent > 0
+    ? riskCapital / stopDistancePercent
+    // Fallback: comportamento antigo (nocional = risco% de capital, sem
+    // considerar distância do stop) — preservado por retrocompatibilidade.
+    : riskCapital;
+
+  if (leverage !== undefined) {
+    tradeCapital = clampToMarginAffordability(tradeCapital, leverage, currentBalance).notionalUsd;
   }
 
-  // Fallback: comportamento antigo (nocional = risco% de capital, sem
-  // considerar distância do stop) — preservado por retrocompatibilidade.
-  return riskCapital >= minTradeCapital ? riskCapital : null;
+  return tradeCapital >= minTradeCapital ? tradeCapital : null;
+}
+
+/**
+ * Fração máxima do balance que pode ser comprometida como margem por um único
+ * trade. Conservador de propósito — deixa espaço pra múltiplas posições
+ * simultâneas e pra absorver drawdown antes de bater a margin call (na
+ * Infinox, documentado como 50% do margin usado — TradersUnion/BrokersView,
+ * pesquisa 2026-08-19). Não é um valor medido, é uma escolha de segurança;
+ * revisar se algum dia houver dado real de quantas posições simultâneas o
+ * produto sustenta.
+ */
+export const MAX_MARGIN_UTILIZATION_PERCENT = 0.3; // 30% do balance por trade
+
+/**
+ * Margem exigida pra abrir uma posição de `notionalUsd`, dado o leverage do
+ * instrumento. Fórmula padrão de mercado — margem = nocional / leverage —
+ * confirmada contra Alpari, Pepperstone, BlackBull e XTB (pesquisa 2026-08-19,
+ * SESSAO_2026-08-19_LIMPEZA_POSICOES_ZUMBIS.md).
+ *
+ * Antes desta função, `leverage` do catálogo (`assetDatabase.ts`) não entrava
+ * em NENHUM cálculo de tamanho de posição — `lotSizeConversion.ts` dizia
+ * explicitamente "leverage do asset é informativo de UI, não entra nesta
+ * conta". Isso é uma lacuna real: dois ativos com o MESMO nocional em dólar
+ * podem exigir margens radicalmente diferentes (catálogo: FOREX_MAJOR
+ * 500-1000x vs CRYPTO 5x) — sem checar isso, o motor podia calcular (e tentar
+ * abrir) um nocional que a conta não tinha margem livre pra sustentar.
+ */
+export function calculateRequiredMargin(notionalUsd: number, leverage: number): number {
+  if (!(leverage > 0)) return notionalUsd; // leverage inválido/ausente: trata como 1x (mais conservador)
+  return notionalUsd / leverage;
+}
+
+export interface MarginAffordabilityResult {
+  notionalUsd: number;
+  requiredMargin: number;
+  clamped: boolean;
+}
+
+/**
+ * Reduz `notionalUsd` (nunca aumenta) até que a margem exigida caiba dentro
+ * de `MAX_MARGIN_UTILIZATION_PERCENT` do balance disponível. Mesma filosofia
+ * dos outros clamps do motor (maxContracts, piso de $10 em
+ * runTradingCycle.ts): nunca inflar risco além do que já foi decidido, só
+ * cortar quando o tamanho calculado excede o que a conta pode sustentar.
+ */
+export function clampToMarginAffordability(
+  notionalUsd: number,
+  leverage: number,
+  availableBalance: number
+): MarginAffordabilityResult {
+  const maxMargin = availableBalance * MAX_MARGIN_UTILIZATION_PERCENT;
+  const requiredMargin = calculateRequiredMargin(notionalUsd, leverage);
+  if (maxMargin <= 0 || requiredMargin <= maxMargin) {
+    return { notionalUsd, requiredMargin, clamped: false };
+  }
+  const scale = maxMargin / requiredMargin;
+  return { notionalUsd: notionalUsd * scale, requiredMargin: maxMargin, clamped: true };
 }
 
 export interface AtrTpSlResult {

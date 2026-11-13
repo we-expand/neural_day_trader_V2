@@ -1,0 +1,126 @@
+{
+  "total_trades_input": 166,
+  "skipped": 43,
+  "trades_validos": 123,
+  "reverteram_de_ganho_pra_perda_ou_zero": 76,
+  "pct_do_total": 0.6178861788617886,
+  "soma_pnl_real_dos_que_reverteram": -57.875348125761,
+  "ja_deveriam_ter_sido_protegidos_pelo_breakeven_1_5R_mas_nao_foram": 18,
+  "detalhe_desses_casos": [
+    {
+      "id": "4cee8a28-1061-4e63-88ba-5cf826cb9559",
+      "symbol": "SOLUSD",
+      "mfe_R": 4.580578092730027,
+      "real_net_pnl": -2.026864425767619
+    },
+    {
+      "id": "6d745af0-75e4-46f8-af60-e9f23d78d338",
+      "symbol": "BTCUSD",
+      "mfe_R": 11.075986989691756,
+      "real_net_pnl": -0.016412006106149134
+    },
+    {
+      "id": "0ac8549c-b965-4977-aa1e-f2a450dfcf0e",
+      "symbol": "ETHUSD",
+      "mfe_R": 2.340900512414006,
+      "real_net_pnl": -1.5318778843054444
+    },
+    {
+      "id": "3efe52b7-89fe-4087-b7fe-cdff79f4d22c",
+      "symbol": "SOLUSD",
+      "mfe_R": 1.7115713502131134,
+      "real_net_pnl": -2.6399999999999864
+    },
+    {
+      "id": "b83f32b2-d3be-4b27-b723-532047fb43fe",
+      "symbol": "SOLUSD",
+      "mfe_R": 6.5053958550971185,
+      "real_net_pnl": -0.04800000000000182
+    },
+    {
+      "id": "37b42c5e-4c6c-4d69-8431-a110a940b4df",
+      "symbol": "SOLUSD",
+      "mfe_R": 1.9005936829663417,
+      "real_net_pnl": -0.40499999999999403
+    },
+    {
+      "id": "fe0adc2e-3eff-4811-99b6-5b987bb7ba45",
+      "symbol": "SOLUSD",
+      "mfe_R": 5.189530111331797,
+      "real_net_pnl": -1.6500000000000128
+    },
+    {
+      "id": "bae6b4fc-a6c3-4a26-bd49-c5160743ada6",
+      "symbol": "ETHUSD",
+      "mfe_R": 1.6339387583599099,
+      "real_net_pnl": -1.021800000000012
+    },
+    {
+      "id": "8a2013ea-9615-4150-b60d-40f6c6963d38",
+      "symbol": "SOLUSD",
+      "mfe_R": 2.007451406615882,
+      "real_net_pnl": -0.5850000000000007
+    },
+    {
+      "id": "3f07b2ed-0867-4c97-9d76-609e69b26507",
+      "symbol": "SOLUSD",
+      "mfe_R": 2.0584913998327345,
+      "real_net_pnl": -0.36000000000001364
+    },
+    {
+      "id": "ff05fef1-82b5-456a-8912-0c1b0e06b700",
+      "symbol": "SOLUSD",
+      "mfe_R": 2.194934146765343,
+      "real_net_pnl": -0.6300000000000026
+    },
+    {
+      "id": "e6eb92a4-e7ea-460b-a025-bc72e67856ec",
+      "symbol": "ETHUSD",
+      "mfe_R": 204.46434128744355,
+      "real_net_pnl": -0.005500000000006367
+    },
+    {
+      "id": "940c9851-11c5-409c-9c79-12d341d43674",
+      "symbol": "SOLUSD",
+      "mfe_R": 63.36384404485122,
+      "real_net_pnl": -0.015000000000007674
+    },
+    {
+      "id": "95ee4352-d30f-49e8-9f54-40687663a86a",
+      "symbol": "SOLUSD",
+      "mfe_R": 199.656235858921,
+      "real_net_pnl": 0
+    },
+    {
+      "id": "a61148ec-ee0a-47f8-b9da-827cf80859cd",
+      "symbol": "SOLUSD",
+      "mfe_R": 1.6227424361166114,
+      "real_net_pnl": -1.0079999999999985
+    },
+    {
+      "id": "7e027752-27bb-4f97-84a3-1abff6511fb3",
+      "symbol": "SOLUSD",
+      "mfe_R": 5.165733547304306,
+      "real_net_pnl": -0.1507402571924919
+    },
+    {
+      "id": "0bc7e51f-e53c-497d-9122-96ab78e19f77",
+      "symbol": "SOLUSD",
+      "mfe_R": 1.8035505779812204,
+      "real_net_pnl": -0.6596514786349315
+    },
+    {
+      "id": "a98f306e-1f5a-4d08-9032-c403eef518ca",
+      "symbol": "SOLUSD",
+      "mfe_R": 2.026104775363701,
+      "real_net_pnl": -0.5381687593385575
+    }
+  ],
+  "reverteram_mas_nunca_bateram_1_5R_de_gatilho": 58,
+  "distribuicao_mfe_R_dos_que_reverteram": {
+    "entre_0_e_0.5R": 18,
+    "entre_0.5_e_1R": 22,
+    "entre_1_e_1.5R": 18,
+    "acima_de_1.5R": 18
+  }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { TrendingUp, TrendingDown, Wifi, WifiOff } from 'lucide-react';
 import { getBatchedMT5Data } from '@/app/services/RealMarketDataService';
+import { isMarketOpen } from '@/app/utils/marketHours';
 
 interface TickerAsset {
   symbol: string;
@@ -70,6 +71,11 @@ export function MarketTicker() {
     { symbol: 'INTC', price: 0, change: 0 },
     
     // Commodities
+    // ✅ 2026-09-07: COPPER estava neste array desde o começo mas NUNCA tinha
+    // entrada em symbolMap/symbolToUnified abaixo -- nunca era buscado de
+    // verdade, ficava travado no price:0 inicial pra sempre (aparecia como
+    // "$---" no rodapé). Corrigido com o mesmo padrão de WHEAT/COFFEE/SUGAR
+    // (unified COPUSD -- ver brokerRegistry.ts/yahooSymbolMap).
     { symbol: 'COPPER', price: 0, change: 0 },
     { symbol: 'WHEAT', price: 0, change: 0 },
     { symbol: 'COFFEE', price: 0, change: 0 },
@@ -109,14 +115,23 @@ export function MarketTicker() {
       AAPL: 'AAPL', MSFT: 'MSFT', GOOGL: 'GOOGL', AMZN: 'AMZN', NVDA: 'NVDA',
       TSLA: 'TSLA', META: 'META', NFLX: 'NFLX', AMD: 'AMD', INTC: 'INTC',
 
-      // Agrícolas — WHEUSD/COFUSD confirmados na corretora; SUGUSD cai no
-      // fallback Yahoo real dentro de getBatchedMT5Data (não está na Infinox)
-      WHEUSD: 'WHEAT', COFUSD: 'COFFEE', SUGUSD: 'SUGAR',
+      // Agrícolas — WHEUSD/COFUSD confirmados na corretora; SUGUSD/COPUSD caem
+      // no fallback Yahoo real dentro de getBatchedMT5Data (não estão na
+      // Infinox -- ver brokerRegistry.ts). COPUSD é entrada nova (2026-09-07,
+      // COPPER nunca tinha mapeamento nenhum aqui, ficava sempre em "$---").
+      WHEUSD: 'WHEAT', COFUSD: 'COFFEE', SUGUSD: 'SUGAR', COPUSD: 'COPPER',
     };
 
     const fetchTickers = async () => {
       try {
-        const data = await getBatchedMT5Data(Object.keys(symbolMap));
+        // ✅ 2026-09-03: pula símbolo com mercado fechado (fim de semana,
+        // pausa diária de manutenção, fora do pregão de ações) — rodapé é só
+        // decorativo, não precisa brigar pela cota MetaAPI compartilhada por
+        // um ativo que nem está operando. Cripto é 24/7, sempre entra.
+        const openSymbols = Object.keys(symbolMap).filter(sym => isMarketOpen(sym).isOpen);
+        if (openSymbols.length === 0) return;
+
+        const data = await getBatchedMT5Data(openSymbols);
 
         const formatted: TickerAsset[] = Object.entries(symbolMap)
           .filter(([unifiedSymbol]) => data[unifiedSymbol]?.isRealData && data[unifiedSymbol].price > 0)
@@ -139,14 +154,45 @@ export function MarketTicker() {
     };
 
     fetchTickers();
-    // 10s (ajustado a pedido do Cleber) — preço "vivo" (era 30s); getBatchedMT5Data
-    // já faz uma única chamada em lote, não empilha chamada por símbolo
-    const interval = setInterval(fetchTickers, 10000);
-    return () => clearInterval(interval);
+    // 🔴 2026-09-11 (pedido explícito do Cleber, mitigação temporária pra
+    // investigar a instabilidade recorrente da MetaAPI/feed): polling
+    // periódico DESLIGADO -- busca 1x no mount e para. Motivo: este rodapé
+    // é o maior consumidor único de cota da conta MetaAPI compartilhada
+    // fora do próprio motor (30-47 símbolos por ciclo, era a cada 120s);
+    // é decorativo, não crítico, então é o primeiro candidato a cortar
+    // enquanto tentamos isolar se a causa do 504/"Failed to subscribe" é
+    // pressão de chamada ou outra coisa (rede local, lado do broker). Se
+    // a instabilidade sumir com isso desligado, é sinal real; se persistir
+    // igual, descarta esta hipótese. Reverter (religar o `setInterval`
+    // abaixo) só depois de decisão consciente, não por default.
+    // const interval = setInterval(fetchTickers, 120000);
+    // return () => clearInterval(interval);
   }, []);
 
+  // ✅ 2026-09-03: esconde do rodapé ativo com mercado fechado (fim de
+  // semana / fora do horário de operação) — reduz carga na API e evita
+  // mostrar preço "---" parado de um ativo que não está operando.
+  const symbolToUnified: Record<string, string> = {
+    BTC: 'BTCUSD', ETH: 'ETHUSD', XRP: 'XRPUSD', BNB: 'BNBUSD', SOL: 'SOLUSD',
+    ADA: 'ADAUSD', DOGE: 'DOGEUSD', AVAX: 'AVAXUSD', DOT: 'DOTUSD', POL: 'POLUSD',
+    'S&P 500': 'SPX500', NASDAQ: 'NAS100', DOW: 'US30', DAX: 'GER40',
+    FTSE: 'UK100', NIKKEI: 'JPN225', 'HANG SENG': 'HKG33',
+    'EUR/USD': 'EURUSD', 'GBP/USD': 'GBPUSD', 'USD/JPY': 'USDJPY', 'USD/CHF': 'USDCHF',
+    'AUD/USD': 'AUDUSD', 'USD/CAD': 'USDCAD', 'NZD/USD': 'NZDUSD',
+    'EUR/GBP': 'EURGBP', 'EUR/JPY': 'EURJPY', 'GBP/JPY': 'GBPJPY',
+    GOLD: 'XAUUSD', SILVER: 'XAGUSD', PLATINUM: 'XPTUSD', PALLADIUM: 'XPDUSD',
+    OIL: 'USOUSD', BRENT: 'UKOUSD', 'NAT GAS': 'XNGUSD',
+    AAPL: 'AAPL', MSFT: 'MSFT', GOOGL: 'GOOGL', AMZN: 'AMZN', NVDA: 'NVDA',
+    TSLA: 'TSLA', META: 'META', NFLX: 'NFLX', AMD: 'AMD', INTC: 'INTC',
+    WHEAT: 'WHEUSD', COFFEE: 'COFUSD', SUGAR: 'SUGUSD', COPPER: 'COPUSD',
+  };
+  const visibleAssets = assets.filter(a => {
+    const unified = symbolToUnified[a.symbol];
+    return !unified || isMarketOpen(unified).isOpen;
+  });
+
   // ✅ TRIPLICAR ativos para garantir looping infinito sem espaços
-  const duplicatedAssets = [...assets, ...assets, ...assets];
+  const duplicatedAssets = [...visibleAssets, ...visibleAssets, ...visibleAssets];
 
   return (
     <div className="w-full overflow-hidden bg-black/60 border-t border-white/5 backdrop-blur-sm">

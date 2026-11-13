@@ -6,11 +6,12 @@
  * Admin (aba "devlab").
  */
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Code2, Paintbrush, Zap, TrendingUp, Sparkles, Bug, Lightbulb,
   Check, Trash2, RotateCcw, X, Plus, Beaker, Megaphone,
   CircleDollarSign, Brain, ExternalLink, Search, RefreshCw, Microscope,
+  Wand2, Loader2, ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '@/app/contexts/AuthContext';
 import {
@@ -18,7 +19,7 @@ import {
   CATEGORY_CONFIG, IMPACT_CONFIG, EFFORT_CONFIG,
 } from '@/app/services/DevLabService';
 
-type ViewMode = 'active' | 'completed' | 'trash' | 'research';
+type ViewMode = 'active' | 'completed' | 'trash' | 'research' | 'ai_suggestions';
 
 const CATEGORY_ICONS: Record<Category, React.ComponentType<any>> = {
   TECH: Code2,
@@ -31,6 +32,7 @@ const CATEGORY_ICONS: Record<Category, React.ComponentType<any>> = {
   GROWTH_MARKETING: Megaphone,
   MONETIZATION: CircleDollarSign,
   AI_BRAIN: Brain,
+  SECURITY: ShieldAlert,
 };
 
 const CategoryIcon = ({ category }: { category: Category }) => {
@@ -65,6 +67,13 @@ const SourceBadge = ({ suggestion }: { suggestion: Suggestion }) => {
       </span>
     );
   }
+  if (suggestion.source_type === 'AI_SUGGESTION') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+        <Wand2 className="w-3 h-3" /> Sugestão da IA
+      </span>
+    );
+  }
   return (
     <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-slate-500 border border-white/10">
       Manual
@@ -84,6 +93,15 @@ export default function DevLab({ embedded = false }: DevLabProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('active');
   const [selectedCategory, setSelectedCategory] = useState<Category | 'ALL'>('ALL');
   const [showNewModal, setShowNewModal] = useState(false);
+  const [generatingAi, setGeneratingAi] = useState(false);
+  const [aiFocus, setAiFocus] = useState('');
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [fillingAllCategories, setFillingAllCategories] = useState(false);
+  const [fillProgress, setFillProgress] = useState<{ done: number; total: number; label: string } | null>(null);
+
+  const PAGE_SIZE = 20;
+  const ALL_CATEGORIES = Object.keys(CATEGORY_CONFIG) as Category[];
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -104,11 +122,19 @@ export default function DevLab({ embedded = false }: DevLabProps) {
     completed: suggestions.filter((s) => s.status === 'completed').length,
     trash: suggestions.filter((s) => s.status === 'trash').length,
     aiResearch: suggestions.filter((s) => s.source_type === 'AI_RESEARCH').length,
+    aiSuggestion: suggestions.filter((s) => s.source_type === 'AI_SUGGESTION').length,
     total: suggestions.length,
   }), [suggestions]);
 
   const filtered = useMemo(() => {
     if (viewMode === 'research') return [];
+    if (viewMode === 'ai_suggestions') {
+      return suggestions.filter((s) => {
+        if (s.source_type !== 'AI_SUGGESTION' || s.status === 'trash') return false;
+        if (selectedCategory !== 'ALL' && s.category !== selectedCategory) return false;
+        return true;
+      });
+    }
     return suggestions.filter((s) => {
       if (s.status !== viewMode) return false;
       if (selectedCategory !== 'ALL' && s.category !== selectedCategory) return false;
@@ -116,9 +142,117 @@ export default function DevLab({ embedded = false }: DevLabProps) {
     });
   }, [suggestions, viewMode, selectedCategory]);
 
+  // Reseta pra página 1 sempre que a seção ou o filtro de categoria muda —
+  // senão o usuário pode ficar preso numa página vazia (ex: tinha 3 páginas
+  // em "Ativas", troca pra "Concluídas" que só tem 1).
+  useEffect(() => { setPage(1); }, [viewMode, selectedCategory]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = useMemo(
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page],
+  );
+
+  const handleGenerateAi = async () => {
+    setGeneratingAi(true);
+    setAiError(null);
+    const result = await devLabService.generateAiSuggestions(aiFocus.trim() || undefined);
+    if ('error' in result) {
+      setAiError(result.error);
+    } else {
+      setSuggestions((prev) => [...result.suggestions, ...prev]);
+      setAiFocus('');
+    }
+    setGeneratingAi(false);
+  };
+
+  /**
+   * Pedido do Cleber: manter até 20 sugestões de IA ATIVAS em CADA categoria.
+   * Roda sequencialmente (não em paralelo) pra não estourar rate-limit do
+   * provedor de LLM — cada categoria pede só o que falta pra chegar em 20,
+   * nunca gera de novo o que já está cheio.
+   */
+  const handleFillAllCategories = async () => {
+    setFillingAllCategories(true);
+    setAiError(null);
+    const categoriesToFill = ALL_CATEGORIES.filter((cat) => {
+      const current = suggestions.filter((s) => s.source_type === 'AI_SUGGESTION' && s.status === 'active' && s.category === cat).length;
+      return current < 20;
+    });
+
+    // Erro transitório do provedor de LLM (ex: 503 "overloaded") não pode
+    // consumir o tempo de espera de retry ANTES de dar a chance de tentar
+    // as outras categorias — achado real em 2026-09-22: com retry síncrono
+    // por categoria (tenta, espera 3s, tenta de novo, só então segue pra
+    // próxima), qualquer interrupção no meio (reload/troca de aba do
+    // usuário) matava o loop sempre na MESMA 1ª categoria pendente, porque
+    // o tempo de retry ficava todo "gasto" nela antes de sequer tentar as
+    // demais. Agora são 2 passadas: 1ª tenta TODAS as categorias pendentes
+    // uma vez cada (o mais rápido possível, sem esperar nada); só na 2ª
+    // passada volta pra tentar de novo, uma vez, só quem falhou na 1ª —
+    // maximiza quantas categorias recebem pelo menos 1 tentativa real antes
+    // de qualquer atraso de retry.
+    const attempt = async (cat: Category, doneCount: number, total: number): Promise<{ ok: true } | { ok: false; error: string }> => {
+      const current = suggestions.filter((s) => s.source_type === 'AI_SUGGESTION' && s.status === 'active' && s.category === cat).length;
+      const needed = 20 - current;
+      if (needed <= 0) return { ok: true };
+      setFillProgress({ done: doneCount, total, label: CATEGORY_CONFIG[cat].label });
+      const result = await devLabService.generateAiSuggestions(undefined, needed, cat);
+      if ('error' in result) return { ok: false, error: result.error };
+      setSuggestions((prev) => [...result.suggestions, ...prev]);
+      return { ok: true };
+    };
+
+    const failed: { cat: Category; error: string }[] = [];
+    for (let i = 0; i < categoriesToFill.length; i++) {
+      const outcome = await attempt(categoriesToFill[i], i, categoriesToFill.length);
+      if (outcome.ok === false) failed.push({ cat: categoriesToFill[i], error: outcome.error });
+    }
+
+    // 2ª passada: só as que falharam na 1ª, com 1 retry cada — a essa
+    // altura o resto da cesta já foi tentado, então mesmo se o usuário
+    // interromper aqui, a cobertura real já é ampla.
+    const stillFailed: string[] = [];
+    for (let i = 0; i < failed.length; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const outcome = await attempt(failed[i].cat, i, failed.length);
+      if (outcome.ok === false) stillFailed.push(`${CATEGORY_CONFIG[failed[i].cat].label}: ${outcome.error}`);
+    }
+
+    if (stillFailed.length > 0) {
+      setAiError(`Falhou em ${stillFailed.length} categoria(s) mesmo com retry: ${stillFailed.join(' | ')}`);
+    }
+    setFillProgress(null);
+    setFillingAllCategories(false);
+  };
+
+  // Pedido do Cleber (2026-09-09): não é mais um botão que precisa de clique —
+  // ao entrar no Dev Lab, cada categoria já deve chegar em 20 sugestões de IA
+  // sozinha, sem ação manual. Roda uma única vez por sessão (ref guard, não
+  // a cada re-load automático de status/conclusão), depois disso vira no-op
+  // porque `categoriesToFill` já filtra quem já está em 20.
+  const autoFillTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (loading || !user?.id || autoFillTriggeredRef.current) return;
+    autoFillTriggeredRef.current = true;
+    handleFillAllCategories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user?.id]);
+
   const handleStatus = async (id: string, status: SuggestionStatus) => {
+    const target = suggestions.find((s) => s.id === id);
     setSuggestions((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
     await devLabService.updateStatus(id, status);
+
+    // Pedido do Cleber: a fila de "Sugestões da IA" se repõe sozinha — só
+    // entra uma sugestão nova no lugar quando a atual é concluída (nunca ao
+    // simplesmente descartar/reabrir), pra não gastar chamada de LLM à toa.
+    if (status === 'completed' && target?.source_type === 'AI_SUGGESTION') {
+      const result = await devLabService.generateAiSuggestions(undefined, 1);
+      if ('suggestions' in result) {
+        setSuggestions((prev) => [...result.suggestions, ...prev]);
+      }
+    }
   };
 
   const handleDeletePermanent = async (id: string) => {
@@ -126,11 +260,13 @@ export default function DevLab({ embedded = false }: DevLabProps) {
     await devLabService.permanentDelete(id);
   };
 
-  const wrapperClass = embedded ? 'w-full h-full' : 'min-h-screen bg-black text-white';
+  // Largura alinhada ao Dashboard (w-full, sem centralizar/limitar) — pedido
+  // do Cleber pra toda a área "Sistema" ter a mesma largura em toda página.
+  const wrapperClass = embedded ? 'w-full h-full' : 'w-full h-full overflow-y-auto bg-black text-white custom-scrollbar';
 
   return (
     <div className={wrapperClass}>
-      <div className={embedded ? 'p-6' : 'max-w-7xl mx-auto p-8'}>
+      <div className={embedded ? 'p-6' : 'w-full p-4'}>
         {!embedded && (
           <div className="flex items-center gap-3 mb-2">
             <Beaker className="w-7 h-7 text-indigo-400" />
@@ -142,11 +278,12 @@ export default function DevLab({ embedded = false }: DevLabProps) {
         </p>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
           <StatCard label="Ativas" value={stats.active} color="text-white" />
           <StatCard label="Concluídas" value={stats.completed} color="text-emerald-400" />
           <StatCard label="Lixeira" value={stats.trash} color="text-slate-500" />
           <StatCard label="De pesquisa real" value={stats.aiResearch} color="text-cyan-400" />
+          <StatCard label="Da IA" value={stats.aiSuggestion} color="text-indigo-400" />
           <StatCard label="Total" value={stats.total} color="text-white" />
         </div>
 
@@ -156,6 +293,7 @@ export default function DevLab({ embedded = false }: DevLabProps) {
           <TabButton label={`Concluídas (${stats.completed})`} active={viewMode === 'completed'} onClick={() => setViewMode('completed')} />
           <TabButton label={`Lixeira (${stats.trash})`} active={viewMode === 'trash'} onClick={() => setViewMode('trash')} />
           <TabButton label={`Pesquisas de concorrente (${researchRuns.length})`} active={viewMode === 'research'} onClick={() => setViewMode('research')} icon={Search} />
+          <TabButton label={`Sugestões da IA (${stats.aiSuggestion})`} active={viewMode === 'ai_suggestions'} onClick={() => setViewMode('ai_suggestions')} icon={Wand2} />
           <div className="flex-1" />
           <button onClick={load} className="flex items-center gap-2 text-sm text-slate-400 hover:text-white px-3 py-2 mb-1">
             <RefreshCw className="w-4 h-4" /> Atualizar
@@ -164,6 +302,60 @@ export default function DevLab({ embedded = false }: DevLabProps) {
             <Plus className="w-4 h-4" /> Nova sugestão
           </button>
         </div>
+
+        {viewMode === 'ai_suggestions' && (
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4 space-y-3">
+            <p className="text-sm text-slate-400">
+              A IA analisa o produto e propõe melhorias — é opinião do modelo, não pesquisa evidenciada de
+              concorrente (isso fica na aba "Pesquisas de concorrente"). Toda sugestão nasce como <span className="text-white font-medium">Ativa</span>,
+              revise e descarte o que não fizer sentido.
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                value={aiFocus}
+                onChange={(e) => setAiFocus(e.target.value)}
+                placeholder="Foco opcional (ex: monetização, UX do gráfico, cérebro de trading)..."
+                className="flex-1 min-w-[240px] bg-black border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <button
+                onClick={handleGenerateAi}
+                disabled={generatingAi || fillingAllCategories}
+                className="flex items-center gap-2 text-sm bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 font-semibold"
+              >
+                {generatingAi ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                {generatingAi ? 'Gerando...' : 'Gerar 20 sugestões'}
+              </button>
+              <button
+                onClick={handleFillAllCategories}
+                disabled={fillingAllCategories || generatingAi}
+                title="Gera sugestões até cada categoria ter 20 ativas (pula categorias que já estão cheias)"
+                className="flex items-center gap-2 text-sm bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 rounded-lg px-4 py-2 font-semibold"
+              >
+                {fillingAllCategories ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                {fillingAllCategories ? 'Preenchendo...' : 'Preencher 20 por categoria'}
+              </button>
+            </div>
+            {fillProgress && (
+              <p className="text-xs text-indigo-300">
+                Categoria {fillProgress.done + 1} de {fillProgress.total}: {fillProgress.label}...
+              </p>
+            )}
+            {aiError && <p className="text-xs text-red-400">{aiError}</p>}
+          </div>
+        )}
+
+        {viewMode !== 'ai_suggestions' && (fillingAllCategories || fillProgress || aiError) && (
+          <div className="bg-white/5 border border-white/10 rounded-xl p-3 mb-4 text-xs">
+            {fillingAllCategories && !aiError && (
+              <p className="text-indigo-300 flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Preenchendo sugestões da IA em segundo plano
+                {fillProgress ? ` — categoria ${fillProgress.done + 1} de ${fillProgress.total}: ${fillProgress.label}...` : '...'}
+              </p>
+            )}
+            {aiError && <p className="text-red-400">Sugestões da IA falharam: {aiError}</p>}
+          </div>
+        )}
 
         {viewMode !== 'research' && (
           <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -192,7 +384,7 @@ export default function DevLab({ embedded = false }: DevLabProps) {
             {filtered.length === 0 && (
               <p className="text-slate-500 text-sm col-span-full">Nada aqui ainda.</p>
             )}
-            {filtered.map((s) => (
+            {paginated.map((s) => (
               <div key={s.id} className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -216,13 +408,13 @@ export default function DevLab({ embedded = false }: DevLabProps) {
                   <EffortBadge effort={s.effort} />
                 </div>
                 <div className="flex items-center gap-2 pt-2 border-t border-white/5 mt-auto">
-                  {viewMode === 'active' && (
+                  {(viewMode === 'active' || (viewMode === 'ai_suggestions' && s.status === 'active')) && (
                     <>
                       <ActionButton icon={Check} label="Concluir" onClick={() => handleStatus(s.id, 'completed')} color="text-emerald-400 hover:bg-emerald-500/10" />
                       <ActionButton icon={Trash2} label="Descartar" onClick={() => handleStatus(s.id, 'trash')} color="text-red-400 hover:bg-red-500/10" />
                     </>
                   )}
-                  {viewMode === 'completed' && (
+                  {(viewMode === 'completed' || (viewMode === 'ai_suggestions' && s.status === 'completed')) && (
                     <ActionButton icon={RotateCcw} label="Reabrir" onClick={() => handleStatus(s.id, 'active')} color="text-slate-400 hover:bg-white/10" />
                   )}
                   {viewMode === 'trash' && (
@@ -234,6 +426,26 @@ export default function DevLab({ embedded = false }: DevLabProps) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {!loading && viewMode !== 'research' && filtered.length > PAGE_SIZE && (
+          <div className="flex items-center justify-center gap-3 mt-6">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="text-sm px-3 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Anterior
+            </button>
+            <span className="text-xs text-slate-500">Página {page} de {totalPages} — {filtered.length} sugestões</span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="text-sm px-3 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Próxima
+            </button>
           </div>
         )}
 

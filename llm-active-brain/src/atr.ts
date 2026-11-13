@@ -1,0 +1,2010 @@
+import { config } from "./config.js";
+import { analyzeSmc, type SmcZoneType } from "./smc.js";
+import { classifyRegimeHmm, type HmmRegimeResult, HMM_STATE_TREND } from "./hmmRegime.js";
+import { getTickTrend, getTickVolatility, getMomentumAcceleration } from "./tickHistory.js";
+import { isWeekendMode } from "./assetBasket.js";
+import { archiveCandles } from "./neuralBridge.js";
+
+/**
+ * Stop/alvo DINÂMICO por volatilidade real (2026-08-29, pedido do Cleber
+ * pós-auditoria) -- substitui o % fixo (0,5% pra tudo) por um valor
+ * calculado por símbolo a partir do ATR real (Average True Range, mesma
+ * fórmula Wilder/período 14 que `calculateATR` usa em
+ * `src/app/services/indicators/TechnicalIndicators.ts`, o motor mecânico do
+ * produto -- copiada aqui deliberadamente, mesmo motivo do LOT_SIZE em
+ * assetBasket.ts: este projeto Node/tsx não importa a árvore client-side).
+ *
+ * Por que ATR e não % fixo: 0,5% fixo pra BTCUSD, XETUSD e SOLUSD ignora que
+ * cada ativo tem volatilidade intrínseca bem diferente -- um stop apertado
+ * demais num ativo mais volátil bate por ruído (whipsaw), um stop largo
+ * demais num ativo calmo deixa a perda crescer sem necessidade. ATR mede a
+ * volatilidade real e recente do próprio ativo, então o stop respira com o
+ * mercado em vez de ser um número arbitrário igual pra todo mundo.
+ *
+ * Fonte do candle: MESMO endpoint MetaAPI/Infinox que `/mt5-prices` usa
+ * (`/mt5-candles`, conta de plataforma) -- nunca gera candle sintético. Se a
+ * rota cair no fallback simulado dela (token ausente, MetaAPI fora do ar),
+ * detecta e descarta (mesma trava que `getQuote` em mt5Broker.ts já tem para
+ * preço) -- cai pro % fixo de config.ts como piso de segurança, nunca fica
+ * sem stop.
+ */
+
+interface Candle {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+}
+
+interface Mt5CandlesResponse {
+  success?: boolean;
+  candles?: Candle[];
+  source?: string; // "SIMULATED" quando a rota caiu em fallback -- descartar
+  error?: string;
+}
+
+/** Mesma fórmula de `calculateATR` (TechnicalIndicators.ts) -- Wilder, período 14. */
+function calculateAtr(candles: Candle[], period = 14): number | null {
+  if (candles.length < period + 1) return null;
+
+  const trueRanges: number[] = candles.map((c, i) => {
+    if (i === 0) return c.high - c.low;
+    const prevClose = candles[i - 1].close;
+    return Math.max(c.high - c.low, Math.abs(c.high - prevClose), Math.abs(c.low - prevClose));
+  });
+
+  let atr = trueRanges.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < trueRanges.length; i++) {
+    atr = (atr * (period - 1) + trueRanges[i]) / period;
+  }
+  return atr;
+}
+
+const candlesCache = new Map<string, { candles: Candle[]; fetchedAt: number }>();
+const CANDLES_CACHE_TTL_MS = 45 * 1000; // fallback pra timeframe fora do mapa abaixo (não deveria acontecer, todos SupportedTimeframe estão cobertos) -- nunca mais alto que o menor TTL real, ver CACHE_TTL_BY_TIMEFRAME
+
+// 🔴 2026-09-14 (achado real, pedido do Cleber -- XETUSD LONG aberto com
+// Estocastico registrado como NEUTRO, mas recalculo manual usando a ultima
+// vela FECHADA de verdade no mesmo instante deu K=80,79 = SOBRECOMPRADO):
+// o TTL antigo (5m pro timeframe 5m, igual a duracao de 1 vela inteira)
+// deixava o cache servir candle com ate ~5min de atraso -- quando uma vela
+// nova fecha, o motor podia continuar vendo o conjunto de velas ANTIGO por
+// ate 5min antes de buscar de novo, entao o Estocastico calculado nao
+// refletia a vela mais recente de verdade. Como o ciclo do motor roda a
+// cada ~40s, um TTL de 5min significava, na pratica, servir candle cacheado
+// na maioria dos ciclos. Reduzido pra uma fracao pequena da duracao de cada
+// vela -- fresco o suficiente pra pegar a vela recem-fechada rapido, ainda
+// cacheando chamadas repetidas dentro do MESMO ciclo de raciocinio (varias
+// chamadas de get_mt5_quote pro mesmo simbolo no mesmo ciclo nao disparam
+// requisicao nova a cada uma).
+const CACHE_TTL_BY_TIMEFRAME: Record<string, number> = {
+  "1m": 10 * 1000,
+  "5m": 45 * 1000,
+  "15m": 60 * 1000,
+  "1H": 90 * 1000,
+  "4H": 120 * 1000,
+};
+
+/** Timeframes suportados pelo endpoint /mt5-candles (ver timeframeMap em supabase/functions/server/index.ts) -- mesmos valores que o campo `timeframe` do Setup do AI Trader (AIConfig) já usa no frontend. */
+/**
+ * Velas de 1m das ultimas ~60 min (inclui a ainda em formacao). Usada pelo job que mede
+ * o desfecho das decisoes da mesa (deskStore.ts). Devolve null sem candle real, nunca fabrica.
+ */
+export async function getRecentOneMinuteCandles(
+  symbol: string
+): Promise<{ timestamp: number; high: number; low: number; close: number }[] | null> {
+  // 🔴 2026-10-15 (Fase 0, fechar o buraco de medição): o desfecho contrafactual
+  // da mesa (deskStore) precisa de velas cobrindo do instante da decisão até ~60
+  // min depois, mas o job só resolve isso minutos/horas mais tarde. O fetch raso
+  // (60 velas = 60 min) perdia o COMEÇO da janela assim que o job demorava a
+  // chegar na decisão -> 44% das deliberações viravam NO_DATA ("não cobrem o
+  // começo da janela") SEM o mercado estar fechado (medido em 14/10). Busca
+  // profunda (400 velas ~6,6 h) cobre o horizonte inteiro + a folga até o job
+  // medir. Cai pro fetch raso se a profunda não vier; nunca fabrica dado (null
+  // continua null, e candle SIMULATED é recusado lá dentro). Mercado de fato
+  // fechado continua dando NO_DATA honesto (não há vela real na janela).
+  const deep = await getDeepCandles(symbol, "1m", 400);
+  const source = deep && deep.length > 0 ? deep : await fetchRecentCandles(symbol, "1m");
+  if (!source || source.length === 0) return null;
+  return source
+    .filter((c) => [c.high, c.low, c.close].every((v) => Number.isFinite(v) && v > 0))
+    .map((c) => ({ timestamp: c.timestamp, high: c.high, low: c.low, close: c.close }));
+}
+
+/**
+ * Ultima vela de 1m (inclui a ainda em formacao) -- usada SO como rede de
+ * seguranca do stop quando o tick do ativo esta obsoleto (feed travado, ex.
+ * UKOUSD 12/10: tick congelado em 109,029 por 3h enquanto o preco real foi a
+ * 108,71, stop em 108,92 nunca foi checado contra preco real). Nunca fabrica
+ * dado: devolve null se nao houver candle real.
+ */
+export async function getLatestOneMinuteCandle(
+  symbol: string
+): Promise<{ high: number; low: number; close: number; timestamp: number } | null> {
+  const candles = await fetchRecentCandles(symbol, "1m");
+  if (!candles || candles.length === 0) return null;
+  const last = candles[candles.length - 1];
+  if (![last.high, last.low, last.close].every((v) => Number.isFinite(v) && v > 0)) return null;
+  return { high: last.high, low: last.low, close: last.close, timestamp: last.timestamp };
+}
+
+/**
+ * Velas de 1m reais cujo inicio e posterior a `sinceMs` (a vela que contem o
+ * instante da entrada fica de fora: parte da sua faixa e anterior a posicao).
+ * Usada pelo watchdog para ver pavio que cruza o alvo entre dois ticks.
+ */
+export async function getOneMinuteCandlesSince(
+  symbol: string,
+  sinceMs: number
+): Promise<Array<{ high: number; low: number; close: number; timestamp: number }>> {
+  const candles = await fetchRecentCandles(symbol, "1m");
+  if (!candles) return [];
+  return candles
+    .filter((c) => c.timestamp > sinceMs && [c.high, c.low, c.close].every((v) => Number.isFinite(v) && v > 0))
+    .map((c) => ({ high: c.high, low: c.low, close: c.close, timestamp: c.timestamp }));
+}
+
+/**
+ * Velas "profundas" (300) para o corredor de Fibonacci (fibCorridor.ts): o fetch normal traz so 60,
+ * pouco para achar o topo anterior da perna. Cache proprio (15m: 2 min, 1H: 5 min), mesma trava de
+ * concorrencia da MetaAPI e mesma recusa de dado SIMULATED. Devolve null se nao houver dado real.
+ */
+const deepCandlesCache = new Map<string, { candles: Candle[]; fetchedAt: number }>();
+export async function getDeepCandles(symbol: string, timeframe: "1m" | "15m" | "1H", limit = 300): Promise<Candle[] | null> {
+  const key = `${symbol}:${timeframe}:${limit}`;
+  const ttl = timeframe === "1m" ? 30_000 : timeframe === "15m" ? 2 * 60_000 : 5 * 60_000;
+  const cached = deepCandlesCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < ttl) return cached.candles;
+  await acquireCandleSlot();
+  try {
+    const res = await fetch(`${config.neuralSupabaseUrl}/functions/v1/server/mt5-candles`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, timeframe, limit }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return null;
+    const result = (await res.json()) as Mt5CandlesResponse;
+    if (result.source === "SIMULATED") return null;
+    const candles = result.candles;
+    if (!Array.isArray(candles) || candles.length < 60) return null;
+    deepCandlesCache.set(key, { candles, fetchedAt: Date.now() });
+    return candles;
+  } catch {
+    return null;
+  } finally {
+    releaseCandleSlot();
+  }
+}
+
+export const SUPPORTED_TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H"] as const;
+export type SupportedTimeframe = (typeof SUPPORTED_TIMEFRAMES)[number];
+
+/**
+ * Busca (com cache) as últimas velas reais do símbolo no timeframe pedido,
+ * MESMA fonte que `getAtrPercent`/`getTrendInfo` usam -- extraído pra um só
+ * fetch por símbolo/timeframe/ciclo em vez de duplicar a chamada de rede
+ * pra cada métrica derivada dela (2026-08-29, otimização urgente pós-perda
+ * do dia). 🔴 2026-08-31: timeframe agora é parâmetro (Setup do AI Trader) --
+ * default "5m" preserva o comportamento de todas as sessões que não
+ * configuraram nada.
+ */
+async function fetchRecentCandles(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<Candle[] | null> {
+  const cacheKey = `${symbol}:${timeframe}`;
+  const cached = candlesCache.get(cacheKey);
+  const ttl = CACHE_TTL_BY_TIMEFRAME[timeframe] ?? CANDLES_CACHE_TTL_MS;
+  if (cached && Date.now() - cached.fetchedAt < ttl) return cached.candles;
+
+  // 🔴 2026-09-04: o cache acima só guarda resultado JÁ COMPLETO -- N chamadores
+  // pedindo o MESMO símbolo enquanto a primeira requisição ainda está no ar
+  // davam todos cache-miss e disparavam N requisições idênticas. Some isso ao
+  // teto HARD de 5 requisições concorrentes de dado histórico por conta da
+  // MetaAPI (medido ao vivo hoje: 8 concorrentes com cesta de 14) e o excedente
+  // volta como fallback SIMULATED -- que aqui vira `null`, e em open_position
+  // (tools.ts) vira o stop cego de mt5StopFallbackPct pra qualquer símbolo,
+  // independente da volatilidade real dele. Coalescing por chave resolve a
+  // duplicata; o semáforo abaixo segura o resto.
+  const alreadyInFlight = inFlightCandleRequests.get(cacheKey);
+  if (alreadyInFlight) return alreadyInFlight;
+
+  const request = fetchCandlesFromNetwork(symbol, timeframe, cacheKey).finally(() => {
+    inFlightCandleRequests.delete(cacheKey);
+  });
+  inFlightCandleRequests.set(cacheKey, request);
+  return request;
+}
+
+/**
+ * Teto de requisições de candle simultâneas que ESTE processo dispara.
+ *
+ * A MetaAPI limita dado histórico a 5 concorrentes POR CONTA (limite fixo, não
+ * muda com plano pago -- confirmado na documentação oficial em 2026-09-04), e a
+ * conta é COMPARTILHADA entre o motor headless e o Gráfico/Dashboard do próprio
+ * usuário. Ficar em 3 deixa folga real pros consumidores do navegador em vez de
+ * o motor sozinho encostar no teto e empurrar todo mundo (inclusive ele mesmo)
+ * pro fallback SIMULATED.
+ *
+ * 🔴 2026-09-04 (pesquisa profunda, mesmo dia): achado que faltava nesta
+ * análise -- as rotas `/mt5-prices`/`/mt5-candles`/`/mt5-candles-history` (Edge
+ * Function compartilhada, usada por TODOS os consumidores: este processo,
+ * Dashboard, Gráfico) tinham seu PRÓPRIO ponto de concorrência sem nenhum
+ * limite alinhado a este teto (`/mt5-prices` processava até 8 símbolos em
+ * paralelo, cada um disparando sua própria chamada de candle -- 3 acima do
+ * teto de 5 SÓ NESSA ROTA, sem contar este processo). Corrigido lá com um
+ * semáforo compartilhado entre as 3 rotas, limite 2. Reduzido AQUI de 3 para
+ * 2 (3+2=5 ficava exatamente no teto, sem nenhuma folga) -- 2+2=4 deixa 1
+ * unidade de margem real para qualquer pico simultâneo das duas pontas.
+ * Mitigação ainda não é um limitador distribuído de verdade (cada lado só
+ * limita a si mesmo, não existe coordenação real entre os dois processos) --
+ * ver relatório da sessão para o próximo passo estrutural (contador/lock
+ * compartilhado via Postgres) se isto não bastar.
+ */
+const MAX_CONCURRENT_CANDLE_REQUESTS = 2;
+const inFlightCandleRequests = new Map<string, Promise<Candle[] | null>>();
+let activeCandleRequests = 0;
+const candleRequestQueue: Array<() => void> = [];
+
+function acquireCandleSlot(): Promise<void> {
+  if (activeCandleRequests < MAX_CONCURRENT_CANDLE_REQUESTS) {
+    activeCandleRequests++;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => candleRequestQueue.push(resolve));
+}
+
+function releaseCandleSlot(): void {
+  // Transfere o slot direto pro próximo da fila (sem decrementar) -- decrementar
+  // antes de acordar o próximo abriria uma janela pra um chamador novo furar a
+  // fila pelo caminho rápido de acquireCandleSlot.
+  const next = candleRequestQueue.shift();
+  if (next) next();
+  else activeCandleRequests--;
+}
+
+async function fetchCandlesFromNetwork(
+  symbol: string,
+  timeframe: SupportedTimeframe,
+  cacheKey: string,
+): Promise<Candle[] | null> {
+  await acquireCandleSlot();
+  try {
+    return await requestCandles(symbol, timeframe, cacheKey);
+  } finally {
+    releaseCandleSlot();
+  }
+}
+
+async function requestCandles(
+  symbol: string,
+  timeframe: SupportedTimeframe,
+  cacheKey: string,
+): Promise<Candle[] | null> {
+  const url = `${config.neuralSupabaseUrl}/functions/v1/server/mt5-candles`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.neuralSupabaseAnonKey}`,
+        "Content-Type": "application/json",
+      },
+      // 🔴 2026-08-30 (implementação de MACD real, pedido do Cleber pós
+      // XETUSD SHORT com tese fraca): limit subiu de 30 pra 60 velas. MACD
+      // clássico (EMA12/26/9) precisa de aquecimento real -- com 30 velas a
+      // EMA26 mal teria 4-5 velas de warm-up antes do primeiro valor
+      // usável, ficando instável logo no início da série. 60 velas dá
+      // warm-up de verdade pras 3 EMAs sem pesar demais o fetch, em
+      // qualquer timeframe (mesmo endpoint).
+      body: JSON.stringify({ symbol, timeframe, limit: 60 }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const result = (await res.json()) as Mt5CandlesResponse;
+    if (result.source === "SIMULATED") return null; // mesma trava de mt5Broker.ts -- nunca decide em cima de candle fabricado
+    const candles = result.candles;
+    // 🔴 2026-08-30: mínimo subiu de 15 pra 35 -- abaixo disso o MACD (que
+    // agora também consome esta mesma função) sairia capenga (EMA26 sem
+    // warm-up suficiente). ATR/tendência/volume/S&R continuam funcionando
+    // bem acima desse mínimo, então não perdem precisão com o ajuste.
+    if (!Array.isArray(candles) || candles.length < 35) return null;
+
+    candlesCache.set(cacheKey, { candles, fetchedAt: Date.now() });
+    archiveCandles(symbol, timeframe, candles);
+    return candles;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Retorna o ATR do símbolo como fração do preço (ex: 0.004 = 0.4%), ou
+ * `null` se não deu pra calcular com dado real (chamador deve cair pro %
+ * fixo de segurança nesse caso, nunca travar a abertura de posição).
+ *
+ * 🔴 2026-08-29 (achado do Cleber, "capacidade de análise direcional muito
+ * fraca"): `/mt5-candles` (única fonte usada até aqui) devolve 404 em
+ * produção pra todos os símbolos desta cesta -- confirmado nos logs, ATR
+ * SEMPRE caía no % fixo de segurança. Agora tenta o candle oficial primeiro
+ * (mais preciso, formula Wilder de verdade) e cai pro fallback de
+ * volatilidade por TICK REAL (tickHistory.ts, construído pelo próprio
+ * processo a partir de /mt5-prices, que funciona) antes do último recurso
+ * (% fixo hardcoded).
+ */
+/** Minutos por vela de cada timeframe suportado -- só pra reportar `lookbackMinutes` corretamente quando o timeframe não é o default de 5m. */
+const TIMEFRAME_MINUTES: Record<string, number> = { "1m": 1, "5m": 5, "15m": 15, "1H": 60, "4H": 240 };
+
+export async function getAtrPercent(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<number | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (candles) {
+    const atr = calculateAtr(candles, 14);
+    const lastClose = candles[candles.length - 1].close;
+    if (atr != null && Number.isFinite(atr) && Number.isFinite(lastClose) && lastClose > 0) {
+      return atr / lastClose;
+    }
+  }
+  const tickVol = getTickVolatility(symbol);
+  return tickVol ? tickVol.rangePct : null;
+}
+
+export interface TrendInfo {
+  /** Variação % do fechamento nas últimas `lookback` velas de 5m (positivo = subiu). */
+  changePct: number;
+  /** Rótulo simples pro LLM não ter que interpretar o número sozinho. */
+  label: "ALTA" | "BAIXA" | "LATERAL";
+  lookbackMinutes: number;
+  /** "candle" = veio do candle oficial da MetaAPI; "tick" = fallback por histórico de tick real deste processo. */
+  source: "candle" | "tick";
+}
+
+// 🔴 2026-08-29 (otimização urgente pós-perda do dia, achado real: cérebro
+// LLM empilhou SHORTs em BTCUSD/SOLUSD/XETUSD bem no meio de um rali de
+// várias horas nesses 3 ativos, sem NENHUMA noção de tendência recente --
+// só via o preço do instante, igual olhar uma foto sem saber se o carro
+// estava acelerando ou freando). Contexto de tendência de curto prazo
+// (1h = 12 velas de 5m) agora vai junto de get_mt5_quote, pra decisão
+// deixar de ser cega à direção que o mercado já estava seguindo.
+const TREND_LOOKBACK_CANDLES = 12; // 12 * 5min = 1h
+const TREND_FLAT_THRESHOLD_PCT = 0.15; // abaixo disso, chama de LATERAL em vez de forcar rotulo de direcao
+
+/**
+ * 🔴 2026-08-29 (achado do Cleber, "capacidade de análise direcional muito
+ * fraca" / "não está conseguindo ver pra onde o mercado está indo"): a
+ * ÚNICA fonte usada até aqui (`/mt5-candles`) está 404 em produção pra toda
+ * a cesta -- `trend` vinha `null` em 100% dos ciclos, confirmado nos logs.
+ * Agora tenta o candle oficial primeiro; se não vier, cai pro histórico de
+ * tick REAL deste processo (tickHistory.ts, alimentado por /mt5-prices, que
+ * funciona) -- nunca fabrica tendência, só usa fonte diferente de dado real.
+ */
+export async function getTrendInfo(
+  symbol: string,
+  timeframe: SupportedTimeframe = "5m",
+  lookbackCandles: number = TREND_LOOKBACK_CANDLES
+): Promise<TrendInfo | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (candles && candles.length >= lookbackCandles + 1) {
+    const recent = candles.slice(-lookbackCandles - 1);
+    const startClose = recent[0].close;
+    const endClose = recent[recent.length - 1].close;
+    if (Number.isFinite(startClose) && startClose > 0 && Number.isFinite(endClose)) {
+      const changePct = ((endClose - startClose) / startClose) * 100;
+      const label: TrendInfo["label"] =
+        Math.abs(changePct) < TREND_FLAT_THRESHOLD_PCT ? "LATERAL" : changePct > 0 ? "ALTA" : "BAIXA";
+      return { changePct: Number(changePct.toFixed(3)), label, lookbackMinutes: lookbackCandles * (TIMEFRAME_MINUTES[timeframe] ?? 5), source: "candle" };
+    }
+  }
+
+  const tickTrend = getTickTrend(symbol);
+  if (!tickTrend) return null;
+  return { changePct: tickTrend.changePct, label: tickTrend.label, lookbackMinutes: tickTrend.lookbackMinutes, source: "tick" };
+}
+
+// 🔴 2026-09-08 (achado do Cleber: LLM comprou BTCUSD lendo "pullback numa
+// alta" usando só a janela curta (1h escalada pelo timeframe operacional,
+// ex. 180min em 15m) -- sem NENHUMA noção do contexto mais amplo do dia, que
+// pode já estar em reversão/venda num timeframe maior. `trend` continua
+// existindo (curtíssimo prazo, reage rápido), mas agora vem acompanhado de
+// uma leitura de tendência mais longa (1H de vela, 24 velas = ~1 dia), pra
+// separar "pullback dentro de alta real" de "repique dentro de uma queda
+// maior que só aparece olhando mais longe". Timeframe FIXO em 1H aqui
+// (independente do timeframe operacional escolhido pelo usuário) --
+// contexto de dia inteiro não deveria mudar com o timeframe de execução.
+const TREND_LONG_TERM_TIMEFRAME: SupportedTimeframe = "1H";
+const TREND_LONG_TERM_LOOKBACK_CANDLES = 24; // 24 * 1H = ~1 dia
+
+export async function getLongTermTrendInfo(symbol: string): Promise<TrendInfo | null> {
+  return getTrendInfo(symbol, TREND_LONG_TERM_TIMEFRAME, TREND_LONG_TERM_LOOKBACK_CANDLES);
+}
+
+export interface ImmediateMomentumInfo {
+  /** ALTA = as ultimas velas fechadas vieram subindo em sequencia; BAIXA = caindo em sequencia; MISTO = sem direcao clara (velas alternando). */
+  label: "ALTA" | "BAIXA" | "MISTO";
+  /** Quantas das ultimas `lookbackCandles` velas fecharam ACIMA do fechamento anterior. */
+  upCandles: number;
+  /** Quantas das ultimas `lookbackCandles` velas fecharam ABAIXO do fechamento anterior. */
+  downCandles: number;
+  lookbackCandles: number;
+  lookbackMinutes: number;
+}
+
+const IMMEDIATE_MOMENTUM_LOOKBACK_CANDLES = 3;
+
+/**
+ * 🔴 2026-09-14 (achado real, pedido do Cleber -- UKOUSD LONG aberto durante
+ * uma queda de 5 velas seguidas em andamento, confirmado nos candles reais:
+ * 110.36 -> 109.49 nos 25min anteriores a entrada -- mas `trend` (janela de
+ * 60min) e MACD (indicador atrasado por natureza) nao pegaram a reversao
+ * recem-comecada, so viam o saldo liquido positivo da hora inteira).
+ * `getTrendInfo`/MACD respondem "pra onde o mercado foi na ultima hora", nao
+ * "pra onde ele esta indo NESTE INSTANTE" -- ha uma lacuna real entre os dois.
+ * Esta funcao mede só a estrutura das ULTIMAS 3 velas FECHADAS (~15min em
+ * 5m): se as 3 fecharam cada vez mais baixo, é queda em andamento AGORA,
+ * mesmo que a janela de 60min ainda mostre saldo positivo. Mesma fonte de
+ * candle que `getTrendInfo` (fetchRecentCandles), nunca fabrica dado -- só
+ * fecha a lacuna entre "tendencia da hora" e "o que esta acontecendo agora".
+ */
+export async function getImmediateMomentum(
+  symbol: string,
+  timeframe: SupportedTimeframe = "5m",
+  lookbackCandles: number = IMMEDIATE_MOMENTUM_LOOKBACK_CANDLES
+): Promise<ImmediateMomentumInfo | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < lookbackCandles + 1) return null;
+
+  const recent = candles.slice(-lookbackCandles - 1);
+  let upCandles = 0;
+  let downCandles = 0;
+  for (let i = 1; i < recent.length; i++) {
+    const prevClose = recent[i - 1].close;
+    const close = recent[i].close;
+    if (!Number.isFinite(prevClose) || !Number.isFinite(close)) continue;
+    if (close > prevClose) upCandles++;
+    else if (close < prevClose) downCandles++;
+  }
+
+  const label: ImmediateMomentumInfo["label"] =
+    downCandles === lookbackCandles ? "BAIXA" : upCandles === lookbackCandles ? "ALTA" : "MISTO";
+
+  return {
+    label,
+    upCandles,
+    downCandles,
+    lookbackCandles,
+    lookbackMinutes: lookbackCandles * (TIMEFRAME_MINUTES[timeframe] ?? 5),
+  };
+}
+
+// 🔴 2026-09-14 (pedido direto do Cleber -- "o nosso problema esta sendo ela
+// acertar direcao de mercado... ela precisa ter essa resposta"): ate aqui, a
+// resposta pra "pra que lado o mercado esta indo" ficava espalhada em 4
+// campos separados (trend, trendLongTerm, immediateMomentum, hmmRegime) --
+// cabia ao LLM reconciliar os 4 sozinho, em texto livre, a cada ciclo. Os
+// bugs reais catalogados hoje (Estocastico lido ao contrario, padrao de
+// candle lido ao contrario, comprar em rompimento ja exaurido) nao foram por
+// falta de dado de direcao -- foram por erro na SINTESE que o modelo tinha
+// que fazer sozinho. Esta funcao faz essa sintese em CODIGO, deterministica
+// e auditavel: conta quantos dos sinais disponiveis (que tiveram opiniao
+// real, ignora LATERAL/MISTO/indisponivel) apontam ALTA vs BAIXA, e devolve
+// um veredito UNICO. Pedido explicito do Cleber: os componentes de curto
+// prazo (trend/immediateMomentum) sempre olham o grafico de 5 MINUTOS aqui,
+// independente do timeframe operacional escolhido pelo usuario (mesmo
+// espirito de trendLongTerm ja ser fixo em 1H) -- callers que quiserem
+// combinar com sinais do timeframe operacional continuam livres pra isso,
+// esta funcao so representa o veredito de 5m explicitamente pedido.
+// 🔴 2026-09-15 (pedido direto do Cleber -- metodo real que ele usa pra ler
+// mercado: "eu olho o grafico de 5 minutos, o de 15 minutos, e o de uma
+// hora"): trend15m adicionado como 5o voto, timeframe intermediario entre o
+// curtissimo prazo (5m, reage rapido/ruidoso) e a tendencia do dia (1H) --
+// ajuda a distinguir ruido de 5m de um movimento que ja tem alguma
+// consistencia. Opcional (paramentro pode vir null de callers antigos ainda
+// nao atualizados) pra nao quebrar assinatura -- mas ambos os callers reais
+// (get_mt5_quote e open_position em tools.ts) ja passam o valor.
+export async function getHigherTimeframeChain(symbol: string): Promise<{ macd1h: MacdResult | null; macd4h: MacdResult | null }> {
+  // 2026-10-16 (Cleber): SO a 1H define o lado; a 4H nao entra (macd4h fica null). Mantido o formato pra nao mexer nos call sites.
+  const macd1h = await getMacd(symbol, "1H").catch(() => null);
+  return { macd1h, macd4h: null };
+}
+
+export interface MarketDirectionResult {
+  /** Veredito unico: ALTA/BAIXA = todos os sinais disponiveis concordam; DIVERGENTE = tem sinal real dos dois lados; INDEFINIDO = nenhum sinal com opiniao real agora. */
+  consensus: "ALTA" | "BAIXA" | "DIVERGENTE" | "INDEFINIDO";
+  /** Explicacao factual curta, pronta pro prompt -- nao repete didatica (isso fica no principio do prompt), so o resultado deste ciclo. */
+  agreement: string;
+  votesAlta: number;
+  votesBaixa: number;
+  /** Quantos dos 5 sinais possiveis (trend 5m, trend 15m, trendLongTerm 1H, immediateMomentum 5m, hmmRegime) tinham opiniao real neste ciclo. */
+  signalsUsed: number;
+}
+
+// 🔴 2026-09-23 (pedido do Cleber, opcao "B" escolhida por ele): veredito
+// rapido no metodo dele -- 3 leituras: % do dia, tendencia 5m, tendencia 1H.
+// Maioria (2 de 3) no mesmo lado, e a 1H NAO pode ser contraria (veto).
+// Antes: unanimidade entre ate 5 sinais (basta 1 discordante = DIVERGENTE,
+// causa de o veredito quase nunca sair em mercado lateral). Os parametros
+// 15m/momentum/HMM continuam na assinatura so pra nao mexer nos call sites,
+// nao entram mais no veredito.
+const DAY_CHANGE_NEUTRAL_BAND_PCT = 0.1;
+
+export function computeMarketDirection(
+  trend5m: TrendInfo | null,
+  trendLongTerm: TrendInfo | null,
+  _immediateMomentum5m: ImmediateMomentumInfo | null,
+  _hmmRegime: HmmRegimeResult | null,
+  _trend15m: TrendInfo | null = null,
+  dayChangePct: number | null = null,
+  chain: { macd1h: MacdResult | null; macd4h: MacdResult | null } | null = null
+): MarketDirectionResult {
+  const dayRead: "ALTA" | "BAIXA" | null =
+    dayChangePct == null || !Number.isFinite(dayChangePct) || Math.abs(dayChangePct) < DAY_CHANGE_NEUTRAL_BAND_PCT
+      ? null
+      : dayChangePct > 0 ? "ALTA" : "BAIXA";
+  const read5m = trend5m?.label === "ALTA" || trend5m?.label === "BAIXA" ? trend5m.label : null;
+  const labelRead1h = trendLongTerm?.label === "ALTA" || trendLongTerm?.label === "BAIXA" ? trendLongTerm.label : null;
+  // 2026-10-16 (Cleber): o lado vem da CADEIA de tempos maiores, lida pelo MACD (nao pelo rotulo de preco de 24 velas):
+  // 4H e 1H sao o mesmo movimento em escalas diferentes (um e continuacao do outro), nao dois votos independentes.
+  // 1H e 4H pro mesmo lado = tendencia unica; 1H contra 4H = mercado bagunçado (DIVERGENTE: so REVERSAO confirmada);
+  // so um deles com direcao = segue esse; nenhum = INDEFINIDO. Sem MACD disponivel cai no rotulo antigo.
+  const macdSide = (m: MacdResult | null | undefined): "ALTA" | "BAIXA" | null => (m?.label === "ALTA" || m?.label === "BAIXA" ? m.label : null);
+  const m1h = macdSide(chain?.macd1h);
+  const m4h = macdSide(chain?.macd4h);
+  const chainAvailable = !!(chain && (chain.macd1h || chain.macd4h));
+  let read1h: "ALTA" | "BAIXA" | null = labelRead1h;
+  let chainConflict = false;
+  if (chainAvailable && process.env.MT5_DIRECTION_CHAIN_MACD !== "false") {
+    if (m1h && m4h) {
+      if (m1h === m4h) read1h = m1h;
+      else { read1h = null; chainConflict = true; }
+    } else read1h = m1h ?? m4h;
+  }
+  // 2026-10-16 (pedido do Cleber): a 1H DECIDE O LADO sozinha. O 5m deixou de votar: serve so de CONSULTA pra timing da
+  // entrada (aparece no resumo como "5m a favor/contra"), nao muda o veredito. Antes (5m + 1H concordando) a LLM misturava
+  // as duas escalas. 1H lateral = INDEFINIDO (sem lado imposto). Contra a 1H so com setupType=REVERSAO confirmado (gate em tools.ts).
+  // Rollback: MT5_DIRECTION_BY_1H=false volta ao voto 5m + 1H de antes.
+  const votesAlta = read1h === "ALTA" ? 1 : 0;
+  const votesBaixa = read1h === "BAIXA" ? 1 : 0;
+  const signalsUsed = votesAlta + votesBaixa;
+  const entry5m = read5m == null ? "5m neutro" : read1h == null ? `5m ${read5m}` : read5m === read1h ? `5m ${read5m} (a favor da 1H)` : `5m ${read5m} (contra a 1H, so consulta)`;
+  const chainTxt = chainAvailable ? ` [MACD 1H ${m1h ?? "neutro"}, MACD 4H ${m4h ?? "neutro"}]` : "";
+  const summary = `1H ${read1h ?? (chainConflict ? "contra a 4H" : "lateral")}${chainTxt} (define o lado); ${entry5m}; dia ${dayChangePct != null && Number.isFinite(dayChangePct) ? `${dayChangePct.toFixed(2)}%` : "n/d"} (${dayRead ?? "neutro"})`;
+
+  let consensus: MarketDirectionResult["consensus"];
+  let agreement: string;
+  if (process.env.MT5_DIRECTION_BY_1H === "false") {
+    const reads = [read5m, read1h];
+    const oldAlta = reads.filter((r) => r === "ALTA").length;
+    const oldBaixa = reads.filter((r) => r === "BAIXA").length;
+    const used = oldAlta + oldBaixa;
+    if (used === 0) return { consensus: "INDEFINIDO", agreement: `Veredito rapido: ${summary} -- nenhuma leitura com direcao agora.`, votesAlta: 0, votesBaixa: 0, signalsUsed: 0 };
+    if (oldAlta >= 2 && read1h !== "BAIXA") return { consensus: "ALTA", agreement: `Veredito rapido: ${summary} -- maioria ALTA e 1H nao contraria.`, votesAlta: oldAlta, votesBaixa: oldBaixa, signalsUsed: used };
+    if (oldBaixa >= 2 && read1h !== "ALTA") return { consensus: "BAIXA", agreement: `Veredito rapido: ${summary} -- maioria BAIXA e 1H nao contraria.`, votesAlta: oldAlta, votesBaixa: oldBaixa, signalsUsed: used };
+    return { consensus: "DIVERGENTE", agreement: `Veredito rapido: ${summary} -- SEM maioria clara (ou 1H vetando), exija confirmacao extra antes de continuacao.`, votesAlta: oldAlta, votesBaixa: oldBaixa, signalsUsed: used };
+  }
+  if (chainConflict) {
+    consensus = "DIVERGENTE";
+    agreement = `Lado pela cadeia 4H/1H: ${summary} -- 1H e 4H discordam (mercado bagunçado): so REVERSAO confirmada, na duvida fica fora.`;
+  } else if (read1h === "ALTA") {
+    consensus = "ALTA";
+    agreement = `Lado pela 1H: ${summary}. Operar so COMPRA (ou REVERSAO confirmada); o 5m e so consulta de entrada.`;
+  } else if (read1h === "BAIXA") {
+    consensus = "BAIXA";
+    agreement = `Lado pela 1H: ${summary}. Operar so VENDA (ou REVERSAO confirmada); o 5m e so consulta de entrada.`;
+  } else {
+    consensus = "INDEFINIDO";
+    agreement = `Lado pela 1H: ${summary} -- 1H sem direcao, sem lado imposto.`;
+  }
+
+  return { consensus, agreement, votesAlta, votesBaixa, signalsUsed };
+}
+
+export interface VolumeConfirmation {
+  /** Volume das últimas 3 velas (15min) dividido pela média das 12 anteriores (1h) -- OU (fallback) razão entre inclinação recente e anterior do preço, ver "source". */
+  ratio: number;
+  /** true quando a participação (volume real, ou aceleração de momentum no fallback) está claramente acima do normal recente. */
+  elevated: boolean;
+  /** "candle_volume" = tickVolume real da MetaAPI; "tick_momentum" = fallback (aceleração de preço, sem volume disponível). */
+  source: "candle_volume" | "tick_momentum";
+}
+
+// 🔴 2026-08-29 (otimização pós-conversa sobre Rotter/Pulcini/Antunes -- os
+// três são scalpers de order flow/tape reading, técnica que depende de book
+// de ofertas em tempo real que este sistema NÃO tem, ver CLAUDE.md/histórico
+// da conversa). O que ESTE sistema tem de real e comparável é o tickVolume
+// que a própria MetaAPI já devolve em /mt5-candles (campo `volume`,
+// `formattedCandles` em supabase/functions/server/index.ts) -- nunca usado
+// até agora neste projeto. Não é profundidade de book nem fluxo de ordens de
+// verdade, mas é um proxy honesto e real (não fabricado) da mesma ideia por
+// trás do "tape reading": um movimento de preço acompanhado de volume acima
+// do normal tem mais probabilidade de ser participação real (dinheiro
+// entrando) do que ruído -- e o oposto (mover contra a tendência com volume
+// FRACO) é exatamente o tipo de entrada de baixa convicção que gerou o
+// prejuízo de 2026-08-29 (SHORT repetido durante um rali sem nenhuma leitura
+// de força/fraqueza por trás do movimento).
+const VOLUME_RECENT_CANDLES = 3; // 15min
+const VOLUME_BASELINE_CANDLES = 12; // 1h anterior
+// 2026-08-31: baixado de 1.15 a pedido do Cleber (achou restritivo demais).
+// 2026-09-22: valor default (1.05) migrado pra config.mt5VolumeElevatedRatio
+// (variavel de ambiente MT5_VOLUME_ELEVATED_RATIO) -- Cleber pediu pra poder
+// regular o threshold de horarios de volume mais baixo fora da janela
+// noturna sem precisar editar codigo, mesmo padrao ja usado pra
+// mt5VolumeElevatedRatioEvening.
+
+// 2026-09-15 (pedido direto do Cleber): das 17h00 às 00h00 Brasília, TODO
+// dia (não só fim de semana), o gate de volume elevado usa
+// config.mt5VolumeElevatedRatioEvening (mais permissivo) em vez do valor
+// normal acima -- fora dessa janela, comportamento intocado. Mesmo padrão
+// de horário fixo em Brasília (UTC-3, sem DST) já usado em
+// isWeekendNow/getNySessionPhase logo abaixo.
+// 🔴 2026-09-21: horário definitivo confirmado pelo Cleber é 17h-00h (era
+// 17h-23h) -- fim da janela estendido em 1h.
+const VOLUME_EVENING_START_BRASILIA_MIN = 17 * 60; // 17:00 Brasilia
+const VOLUME_EVENING_END_BRASILIA_MIN = 24 * 60; // 00:00 Brasilia (meia-noite)
+
+function isVolumeEveningWindow(now: Date = new Date()): boolean {
+  const nowUtcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const nowBrasiliaMin = (nowUtcMin - BRASILIA_UTC_OFFSET_HOURS * 60 + 24 * 60) % (24 * 60);
+  return nowBrasiliaMin >= VOLUME_EVENING_START_BRASILIA_MIN && nowBrasiliaMin < VOLUME_EVENING_END_BRASILIA_MIN;
+}
+
+/**
+ * 🔴 2026-08-29 (mesmo achado do Cleber): fallback quando o candle (e o
+ * volume real dele) não vem -- usa aceleração de momentum por tick real
+ * (tickHistory.ts) como proxy de participação. Não é volume de verdade, é
+ * derivado só de preço, mas é dado real deste processo, nunca fabricado.
+ */
+export async function getVolumeConfirmation(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<VolumeConfirmation | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (candles && candles.length >= VOLUME_RECENT_CANDLES + VOLUME_BASELINE_CANDLES) {
+    const hasVolume = !candles.some((c) => typeof c.volume !== "number" || !Number.isFinite(c.volume));
+    if (hasVolume) {
+      const recent = candles.slice(-VOLUME_RECENT_CANDLES);
+      const baseline = candles.slice(-VOLUME_RECENT_CANDLES - VOLUME_BASELINE_CANDLES, -VOLUME_RECENT_CANDLES);
+      const recentAvg = recent.reduce((sum, c) => sum + (c.volume as number), 0) / recent.length;
+      const baselineAvg = baseline.reduce((sum, c) => sum + (c.volume as number), 0) / baseline.length;
+      if (baselineAvg > 0) {
+        const ratio = recentAvg / baselineAvg;
+        const threshold = isVolumeEveningWindow() ? config.mt5VolumeElevatedRatioEvening : config.mt5VolumeElevatedRatio;
+        return { ratio: Number(ratio.toFixed(2)), elevated: ratio >= threshold, source: "candle_volume" };
+      }
+    }
+  }
+
+  const momentum = getMomentumAcceleration(symbol);
+  if (!momentum) return null;
+  const ratio = momentum.priorSlopePct !== 0 ? Math.abs(momentum.recentSlopePct / momentum.priorSlopePct) : momentum.accelerating ? 2 : 1;
+  return { ratio: Number(ratio.toFixed(2)), elevated: momentum.accelerating, source: "tick_momentum" };
+}
+
+export interface SupportResistance {
+  /** Máxima e mínima real da janela ESTABELECIDA (exclui as últimas SR_BREAKOUT_EXCLUDE_CANDLES velas, ver comentário abaixo) -- topo/fundo honesto, não projetado. */
+  resistance: number;
+  support: number;
+  /**
+   * Distância % do preço atual até cada nível. PODE ser negativa -- significa
+   * que o preço já rompeu esse nível estabelecido (breakout real, não
+   * clampado pra 0). Ver brokeAboveResistance/brokeBelowSupport abaixo.
+   */
+  distanceToResistancePct: number;
+  distanceToSupportPct: number;
+  /** true quando o preço está a menos de 0,15% de um dos dois níveis -- zona onde reação (rejeição ou rompimento) é mais provável. */
+  nearLevel: "RESISTENCIA" | "SUPORTE" | null;
+  /**
+   * 🔴 2026-09-04 (pedido do Cleber -- "todo rompimento de topo pode ser o
+   * início de uma grande movimentação... pouco volume não quer dizer que não
+   * vai existir uma grande movimentação"): true quando o preço JÁ está além
+   * do topo/fundo estabelecido (rompimento em andamento). Ver uso em
+   * tools.ts open_position -- o cap de alvo por S/R é desligado nesse caso,
+   * porque o nível que seria o "teto" já foi rompido, não é mais um teto real.
+   */
+  brokeAboveResistance: boolean;
+  brokeBelowSupport: boolean;
+  /**
+   * 🔴 2026-09-16 (pedido direto do Cleber -- "rompeu, ótimo. Espera o candle
+   * fechar, e se ele fechar acima do rompimento, pode dar entrada. Antes
+   * disso, ninguém faz nada"): brokeAboveResistance/brokeBelowSupport acima
+   * usam o ÚLTIMO candle da janela (`candles[length-1]`), que pode ainda
+   * estar em formação -- rompimento "em tempo real", não confirmado. Estes
+   * dois campos usam o candle ANTERIOR a esse (`candles[length-2]`, que por
+   * construção nunca entra no cálculo de resistance/support -- ver
+   * SR_BREAKOUT_EXCLUDE_CANDLES abaixo), ou seja, o último candle que
+   * seguramente já fechou antes do candle mais recente buscado: só true
+   * quando esse candle FECHOU além do nível estabelecido. Usado como trava
+   * mecânica em open_position (tools.ts) para setupType="ROMPIMENTO".
+   */
+  closedAboveResistance: boolean;
+  closedBelowSupport: boolean;
+  lookbackMinutes: number;
+}
+
+const SR_NEAR_LEVEL_THRESHOLD_PCT = 0.15;
+// 🔴 2026-09-04 (mesmo achado -- ver comentário completo abaixo): candles
+// excluídos do cálculo do nível estabelecido, pra não incluir a própria vela
+// que pode estar EM ROMPIMENTO no cálculo do "teto" que ela está rompendo.
+const SR_BREAKOUT_EXCLUDE_CANDLES = 2;
+
+/**
+ * 🔴 2026-08-29 (pedido do Cleber, "fundamentos completos de price action"):
+ * suporte/resistência é o fundamento mais básico de price action e só agora
+ * é honesto de calcular -- depende de candle OHLC real, que `/mt5-candles`
+ * só passou a entregar de verdade depois do fix do endpoint (era 404 na
+ * MetaAPI, caindo sempre em SIMULATED). Deliberadamente simples (máxima/
+ * mínima da própria janela que já buscamos para ATR/tendência/volume, sem
+ * fetch extra): não é zona de order block nem nível institucional, é o
+ * topo/fundo real e recente que qualquer trader discricionário olharia
+ * primeiro. `null` quando não há candle real disponível -- nunca fabrica.
+ *
+ * 🔴 2026-09-04 (achado real, pedido do Cleber -- "todo rompimento de topo
+ * pode ser o início de uma grande movimentação... a IA tem que estar atenta
+ * com todos os rompimentos, sobretudo com pouco volume"): a versão anterior
+ * calculava resistance/support incluindo a vela MAIS RECENTE -- ou seja, na
+ * hora exata de um rompimento real (preço fazendo a nova máxima/mínima da
+ * própria janela), `distanceToResistancePct` dava ~0% por construção
+ * (resistance = max(highs), sempre >= lastClose), e o cap de alvo por S/R em
+ * tools.ts (open_position) achatava o alvo pra quase zero -- bloqueava ou
+ * encolhia drasticamente a entrada JUSTO no momento do rompimento, o oposto
+ * do que deveria acontecer. Agora resistance/support vêm só da janela
+ * ESTABELECIDA (exclui as últimas SR_BREAKOUT_EXCLUDE_CANDLES velas) --
+ * um rompimento real aparece como distância NEGATIVA (preço já além do nível
+ * antigo) em vez de 0 travado, e brokeAboveResistance/brokeBelowSupport
+ * sinalizam isso explicitamente pro chamador não tratar o nível rompido como
+ * teto.
+ */
+export async function getSupportResistance(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<SupportResistance | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < 10 + SR_BREAKOUT_EXCLUDE_CANDLES) return null;
+
+  const establishedCandles = candles.slice(0, candles.length - SR_BREAKOUT_EXCLUDE_CANDLES);
+  const highs = establishedCandles.map((c) => c.high).filter((v) => Number.isFinite(v));
+  const lows = establishedCandles.map((c) => c.low).filter((v) => Number.isFinite(v));
+  if (highs.length === 0 || lows.length === 0) return null;
+
+  const resistance = Math.max(...highs);
+  const support = Math.min(...lows);
+  const lastClose = candles[candles.length - 1].close;
+  if (!Number.isFinite(lastClose) || lastClose <= 0 || resistance <= 0 || support <= 0) return null;
+
+  const distanceToResistancePct = ((resistance - lastClose) / lastClose) * 100;
+  const distanceToSupportPct = ((lastClose - support) / lastClose) * 100;
+  const nearLevel: SupportResistance["nearLevel"] =
+    distanceToResistancePct >= 0 && distanceToResistancePct <= SR_NEAR_LEVEL_THRESHOLD_PCT
+      ? "RESISTENCIA"
+      : distanceToSupportPct >= 0 && distanceToSupportPct <= SR_NEAR_LEVEL_THRESHOLD_PCT
+      ? "SUPORTE"
+      : null;
+
+  // 🔴 2026-09-16: candle imediatamente ANTERIOR ao mais recente buscado --
+  // por construção (SR_BREAKOUT_EXCLUDE_CANDLES=2) nunca entra no cálculo de
+  // resistance/support acima, e é o último candle que seguramente já fechou
+  // antes do candle mais recente (que pode ainda estar em formação). Ver
+  // comentário do campo em SupportResistance.
+  const lastClosedCandle = candles[candles.length - 2];
+  const lastClosedClose = lastClosedCandle?.close;
+  const closedAboveResistance = Number.isFinite(lastClosedClose) ? (lastClosedClose as number) > resistance : false;
+  const closedBelowSupport = Number.isFinite(lastClosedClose) ? (lastClosedClose as number) < support : false;
+
+  return {
+    resistance: Number(resistance.toFixed(6)),
+    support: Number(support.toFixed(6)),
+    distanceToResistancePct: Number(distanceToResistancePct.toFixed(3)),
+    distanceToSupportPct: Number(distanceToSupportPct.toFixed(3)),
+    nearLevel,
+    brokeAboveResistance: distanceToResistancePct < 0,
+    brokeBelowSupport: distanceToSupportPct < 0,
+    closedAboveResistance,
+    closedBelowSupport,
+    lookbackMinutes: candles.length * (TIMEFRAME_MINUTES[timeframe] ?? 5),
+  };
+}
+
+export interface DailyHighLow {
+  /** Maxima/minima real da janela ROLANTE das ultimas ~24h (velas de 1H, exclui as ultimas 2 -- mesmo criterio de SR_BREAKOUT_EXCLUDE_CANDLES, honesto, nao projetado). */
+  dailyHigh: number;
+  dailyLow: number;
+  distanceToDailyHighPct: number;
+  distanceToDailyLowPct: number;
+  /** true quando o preco ja rompeu de verdade a maxima/minima das ultimas 24h -- nesse caso o nivel antigo deixa de ser um teto real. */
+  brokeAboveDailyHigh: boolean;
+  brokeBelowDailyLow: boolean;
+  lookbackHours: number;
+}
+
+const DAILY_HIGH_LOW_LOOKBACK_CANDLES = 24; // ~24h em velas de 1H
+
+/**
+ * 🔴 2026-09-17 (pedido direto do Cleber -- "ela desenhou um alvo acima da
+ * maxima do dia em BTCUSD... pode bater, mas e muito pouco provavel, ela tem
+ * que ter esses calculos de probabilidade na cabeca"): achado real -- o cap
+ * de alvo por S/R em tools.ts (open_position) usava so getSupportResistance
+ * no timeframe OPERACIONAL da sessao (default 5m x 60 velas = so 5h de
+ * janela) -- cego a qualquer maxima/minima que tenha acontecido ANTES dessa
+ * janela no mesmo dia (ex: pico da sessao ASIA, com o motor avaliando de
+ * tarde em NY). Esta funcao busca 1H FIXO (independente do timeframe
+ * operacional, mesmo espirito de getLongTermTrendInfo acima), janela ROLANTE
+ * de 24h -- mais robusto que "dia calendario" (qual fuso? UTC corta a sessao
+ * ASIA ao meio) e e o que qualquer trader discricionario chama de "maxima/
+ * minima do dia" numa mesa 24h como cripto. `null` quando nao ha candle real
+ * suficiente -- nunca fabrica nivel.
+ */
+export async function getDailyHighLow(symbol: string): Promise<DailyHighLow | null> {
+  const candles = await fetchRecentCandles(symbol, "1H");
+  if (!candles || candles.length < DAILY_HIGH_LOW_LOOKBACK_CANDLES + SR_BREAKOUT_EXCLUDE_CANDLES) return null;
+
+  const window = candles.slice(-(DAILY_HIGH_LOW_LOOKBACK_CANDLES + SR_BREAKOUT_EXCLUDE_CANDLES));
+  const establishedCandles = window.slice(0, window.length - SR_BREAKOUT_EXCLUDE_CANDLES);
+  const highs = establishedCandles.map((c) => c.high).filter((v) => Number.isFinite(v));
+  const lows = establishedCandles.map((c) => c.low).filter((v) => Number.isFinite(v));
+  if (highs.length === 0 || lows.length === 0) return null;
+
+  const dailyHigh = Math.max(...highs);
+  const dailyLow = Math.min(...lows);
+  const lastClose = candles[candles.length - 1].close;
+  if (!Number.isFinite(lastClose) || lastClose <= 0 || dailyHigh <= 0 || dailyLow <= 0) return null;
+
+  const distanceToDailyHighPct = ((dailyHigh - lastClose) / lastClose) * 100;
+  const distanceToDailyLowPct = ((lastClose - dailyLow) / lastClose) * 100;
+
+  return {
+    dailyHigh: Number(dailyHigh.toFixed(6)),
+    dailyLow: Number(dailyLow.toFixed(6)),
+    distanceToDailyHighPct: Number(distanceToDailyHighPct.toFixed(3)),
+    distanceToDailyLowPct: Number(distanceToDailyLowPct.toFixed(3)),
+    brokeAboveDailyHigh: distanceToDailyHighPct < 0,
+    brokeBelowDailyLow: distanceToDailyLowPct < 0,
+    lookbackHours: DAILY_HIGH_LOW_LOOKBACK_CANDLES,
+  };
+}
+
+export interface MacdResult {
+  /** Linha MACD (EMA12 - EMA26), em unidade de preço (mesma unidade do símbolo). */
+  macd: number;
+  /** EMA9 da linha MACD -- linha de sinal. */
+  signal: number;
+  /** macd - signal -- o que realmente importa pra leitura de momentum. */
+  histogram: number;
+  /** Igual as BARRAS do MT5: ALTA = linha MACD (EMA12-EMA26) acima de zero, BAIXA = abaixo, NEUTRO = perto de zero. `histogram` (macd-signal) so mede o cruzamento com a linha de sinal. */
+  label: "ALTA" | "BAIXA" | "NEUTRO";
+  /** Histograma mudou de sinal na última vela vs a penúltima -- sinal de virada real, não só direção atual. null quando não houve troca de sinal. */
+  crossing: "CRUZOU_PARA_CIMA" | "CRUZOU_PARA_BAIXO" | null;
+  /**
+   * 🔴 2026-09-22 (pedido direto do Cleber -- XETUSD SHORT 22:32 UTC stopado
+   * com MACD 5m "virando pra subir"): inclinação do histograma nas últimas 3
+   * velas. VIRANDO_PARA_CIMA = histograma subiu 2 velas seguidas (h2<h1<h0),
+   * VIRANDO_PARA_BAIXO = caiu 2 velas seguidas. Pega a virada ANTES do
+   * cruzamento -- ex. real: histograma -1.04 → -0.62 → -0.27 → -0.08 ainda
+   * rotulado "BAIXA" pelo sinal, mas o momentum vendedor já estava morrendo
+   * e cruzou pra cima na vela seguinte. null quando não há tendência clara.
+   */
+  turning: "VIRANDO_PARA_CIMA" | "VIRANDO_PARA_BAIXO" | null;
+  /** Últimos 3 valores do histograma (mais antigo → mais recente), pra auditoria/leitura do LLM. */
+  histogramRecent: number[];
+}
+
+const MACD_FAST_PERIOD = 12;
+const MACD_SLOW_PERIOD = 26;
+const MACD_SIGNAL_PERIOD = 9;
+// Limiar de "perto de zero" pra rotular NEUTRO em vez de forçar ALTA/BAIXA
+// num histograma tecnicamente positivo/negativo mas irrisório -- mesmo
+// espírito do TREND_FLAT_THRESHOLD_PCT acima, só que relativo ao preço do
+// símbolo (histograma de BTCUSD e de XETUSD vivem em escalas bem diferentes).
+const MACD_NEUTRAL_THRESHOLD_RATIO = 0.0001; // 0,01% do preço de fechamento
+
+/** Calcula a série completa de EMA (não só o último valor) -- necessário pra poder derivar a EMA9 da própria série de MACD depois. Seed = SMA dos primeiros `period` valores, mesmo espírito do seed de `calculateAtr` acima. */
+function calculateEmaSeries(values: number[], period: number): number[] | null {
+  if (values.length < period) return null;
+  const k = 2 / (period + 1);
+  const seed = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const emaSeries: number[] = new Array(values.length).fill(NaN);
+  emaSeries[period - 1] = seed;
+  let ema = seed;
+  for (let i = period; i < values.length; i++) {
+    ema = values[i] * k + ema * (1 - k);
+    emaSeries[i] = ema;
+  }
+  return emaSeries;
+}
+
+/**
+ * 🔴 2026-08-30 (pedido direto do Cleber): MACD clássico (EMA12 - EMA26,
+ * linha de sinal EMA9 da linha MACD) -- fica viável de calcular de verdade
+ * agora que `/mt5-candles` entrega candle OHLC oficial real pra esta cesta
+ * (era 404/SIMULATED até uma sessão anterior, ver histórico). Reaproveita
+ * `fetchRecentCandles` (mesmo fetch, mesmo cache de 5min, mesmos closes que
+ * trend/volume/extension/S&R já usam) -- não fabrica nenhum número: se não
+ * houver candle real suficiente (mínimo 35 velas, ver ajuste acima),
+ * retorna `null`, MESMA disciplina do resto deste arquivo.
+ */
+export async function getMacd(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<MacdResult | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < MACD_SLOW_PERIOD + MACD_SIGNAL_PERIOD) return null;
+
+  const closes = candles.map((c) => c.close).filter((v) => Number.isFinite(v));
+  if (closes.length !== candles.length) return null; // algum close inválido -- não tenta calcular em cima de dado incompleto
+
+  const emaFastSeries = calculateEmaSeries(closes, MACD_FAST_PERIOD);
+  const emaSlowSeries = calculateEmaSeries(closes, MACD_SLOW_PERIOD);
+  if (!emaFastSeries || !emaSlowSeries) return null;
+
+  // Linha MACD só existe a partir de onde a EMA lenta (26) começa a existir.
+  const macdSeries: number[] = [];
+  for (let i = MACD_SLOW_PERIOD - 1; i < closes.length; i++) {
+    macdSeries.push(emaFastSeries[i] - emaSlowSeries[i]);
+  }
+  if (macdSeries.length < MACD_SIGNAL_PERIOD) return null; // sem warm-up suficiente pra linha de sinal
+
+  const signalSeries = calculateEmaSeries(macdSeries, MACD_SIGNAL_PERIOD);
+  if (!signalSeries) return null;
+
+  const lastIdx = macdSeries.length - 1;
+  const macd = macdSeries[lastIdx];
+  const signal = signalSeries[lastIdx];
+  if (!Number.isFinite(macd) || !Number.isFinite(signal)) return null;
+  const histogram = macd - signal;
+
+  const lastClose = closes[closes.length - 1];
+  const neutralThreshold = Number.isFinite(lastClose) && lastClose > 0 ? lastClose * MACD_NEUTRAL_THRESHOLD_RATIO : 0;
+  // 2026-10-22 (Cleber): o MT5 desenha como BARRAS a propria linha MACD (EMA12-EMA26), nao macd-signal. Em 1H o BTC tinha MACD -487
+  // (venda forte no MT5) e histograma macd-signal +5,7 (o motor rotulava ALTA). O rotulo passa a seguir as barras do MT5;
+  // histogram/crossing/turning seguem sendo macd-signal (timing do cruzamento com a linha de sinal). Rollback: MT5_MACD_LABEL_BY_HISTOGRAM=true.
+  const labelBase = process.env.MT5_MACD_LABEL_BY_HISTOGRAM === "true" ? histogram : macd;
+  const label: MacdResult["label"] =
+    Math.abs(labelBase) < neutralThreshold ? "NEUTRO" : labelBase > 0 ? "ALTA" : "BAIXA";
+
+  // Crossing: compara o sinal do histograma da última vela vs a penúltima
+  // (precisa de pelo menos 2 pontos de sinal calculados).
+  let crossing: MacdResult["crossing"] = null;
+  const prevIdx = lastIdx - 1;
+  if (prevIdx >= 0 && Number.isFinite(signalSeries[prevIdx])) {
+    const prevHistogram = macdSeries[prevIdx] - signalSeries[prevIdx];
+    if (Number.isFinite(prevHistogram)) {
+      if (prevHistogram <= 0 && histogram > 0) crossing = "CRUZOU_PARA_CIMA";
+      else if (prevHistogram >= 0 && histogram < 0) crossing = "CRUZOU_PARA_BAIXO";
+    }
+  }
+
+  const histogramRecent: number[] = [];
+  for (let i = Math.max(0, lastIdx - 2); i <= lastIdx; i++) {
+    const h = macdSeries[i] - signalSeries[i];
+    if (Number.isFinite(h)) histogramRecent.push(h);
+  }
+  let turning: MacdResult["turning"] = null;
+  if (histogramRecent.length === 3) {
+    const [h2, h1, h0] = histogramRecent;
+    if (h2 < h1 && h1 < h0) turning = "VIRANDO_PARA_CIMA";
+    else if (h2 > h1 && h1 > h0) turning = "VIRANDO_PARA_BAIXO";
+  }
+
+  return {
+    macd: Number(macd.toFixed(6)),
+    signal: Number(signal.toFixed(6)),
+    histogram: Number(histogram.toFixed(6)),
+    label,
+    crossing,
+    turning,
+    histogramRecent: histogramRecent.map((h) => Number(h.toFixed(6))),
+  };
+}
+
+export interface SlowStochasticResult {
+  /** %K lento (media movel de 3 periodos do %K rapido), 0-100. */
+  k: number;
+  /** %D -- media movel de 3 periodos do %K lento (linha de sinal). */
+  d: number;
+  /** k >= 80 = SOBRECOMPRADO, k <= 20 = SOBREVENDIDO, senao NEUTRO. */
+  label: "SOBRECOMPRADO" | "SOBREVENDIDO" | "NEUTRO";
+  /** %K cruzou %D na ultima vela vs a penultima -- sinal classico de reversao/continuacao. null quando nao houve cruzamento. */
+  crossing: "CRUZOU_PARA_CIMA" | "CRUZOU_PARA_BAIXO" | null;
+  // 🔴 2026-09-14 (achado real, pedido do Cleber -- XETUSD LONG aberto em
+  // cima de rompimento forte, com %K BRUTO (sem suavizacao) ja em 98,2
+  // (exaustao extrema), mas o %K LENTO (SMA3, campo `k` acima, usado pela
+  // trava mecanica de contradicao) ainda calculando ~78,8 -- abaixo do
+  // limiar de 80, entao a trava nao disparou. Causa raiz real: a
+  // suavizacao dupla (SMA3 de %K + SMA3 de %D) existe de proposito pra
+  // filtrar ruido, mas por isso reage 2-3 velas DEPOIS de um rompimento
+  // brusco -- exatamente o cenario onde uma entrada de CONTINUACAO
+  // (ROMPIMENTO) mais precisa desse alerta, porque e ali que se compra no
+  // topo do movimento rapido. `rawK` expoe o %K SEM suavizacao (janela de
+  // 14 periodos, sem SMA3) pra permitir uma checagem adicional que reage
+  // na hora, sem substituir a leitura lenta (que continua sendo a fonte
+  // principal, mais confiavel pra maioria dos casos).
+  /** %K RAPIDO (sem suavizacao SMA3), 0-100 -- reage na hora, mais ruidoso. Usado so como alerta extra de exaustao em rompimentos, nunca substitui `k`/`label`. */
+  rawK: number;
+  // 🔴 2026-09-27 (achado real, pedido do Cleber): 75% dos bloqueios de
+  // entrada da trava de contradicao (tools.ts) eram o modelo lendo o
+  // Estocastico AO CONTRARIO -- escrevia "SOBREVENDIDO, favorece venda" e
+  // tentava SHORT em cima de exaustao da queda. A trava impede a entrada,
+  // mas nao corrige a leitura. Causa atacada aqui: em vez de a LLM
+  // INTERPRETAR label/crossing (onde ela erra), o motor entrega a
+  // implicacao direcional ja pronta em texto -- a LLM so precisa citar.
+  /** Implicacao direcional pronta (zona + cruzamento), pra LLM citar em vez de interpretar. Deriva so de `label`/`crossing`, nunca adiciona sinal novo. */
+  directionalHint: string;
+}
+
+/** Texto direcional fixo derivado de label/crossing -- mesma regra da trava de contradicao em tools.ts. */
+function buildStochasticDirectionalHint(
+  label: SlowStochasticResult["label"],
+  crossing: SlowStochasticResult["crossing"],
+): string {
+  const zone =
+    label === "SOBREVENDIDO"
+      ? "SOBREVENDIDO = exaustao da QUEDA, favorece COMPRA (LONG), NUNCA abrir venda (SHORT) por causa disto."
+      : label === "SOBRECOMPRADO"
+        ? "SOBRECOMPRADO = exaustao da ALTA, favorece VENDA (SHORT), NUNCA abrir compra (LONG) por causa disto."
+        : "NEUTRO = sem exaustao, o Estocastico sozinho NAO favorece nenhum lado.";
+  const cross =
+    crossing === "CRUZOU_PARA_CIMA"
+      ? " %K cruzou %D PARA CIMA = gatilho de COMPRA (LONG)."
+      : crossing === "CRUZOU_PARA_BAIXO"
+        ? " %K cruzou %D PARA BAIXO = gatilho de VENDA (SHORT)."
+        : "";
+  return zone + cross;
+}
+
+// 🔴 2026-09-21 (Ajuste 2 do conselho, pedido explicito do Cleber --
+// "nosso estocastico tem que estar com a configuracao do MT5.. afinal o
+// sinal vem de la"): periodo mudado de 14 pra 5, confirmado nos 3 prints
+// do terminal MT5 real do Cleber (Periodo %K=5, Retardar(slowing)=3,
+// Periodo %D=3, Metodo=Simple, Campo do preco=Low/High, niveis fixos
+// 20/80, escala 0-100). Antes deste ajuste, o motor calculava um
+// Estocastico de janela 14 -- MAIS LENTO/suavizado que o do Cleber -- que
+// nunca podia bater ponto a ponto com o que ele olha na tela real,
+// mesmo com dado de candle idêntico. STOCH_K_SMOOTHING/STOCH_D_SMOOTHING
+// (3/3, "slowing"/"%D period") já batiam com o print, intocados.
+const STOCH_PERIOD = 5;
+const STOCH_K_SMOOTHING = 3;
+const STOCH_D_SMOOTHING = 3;
+// 🔴 2026-09-21 (Ajuste 2, mesmo pedido acima): niveis do Estocastico no
+// MT5 real do Cleber sao FIXOS em 20/80 (confirmado no print, sem variante
+// de fim de semana no terminal dele) -- o par STOCH_OVERBOUGHT_WEEKEND/
+// STOCH_OVERSOLD_WEEKEND (75/25, calibrado em 2026-09-05 por hipotese
+// interna, nunca validado contra o terminal real) foi removido pra bater
+// com a fonte de verdade declarada por ele ("o sinal vem de la"). Efeito
+// dominante do fim de semana já é coberto por outros mecanismos
+// (confianca minima/volume ignorado, ver modo-fim-de-semana-2026-09-18) --
+// este limiar deixa de duplicar/contradizer isso com um numero proprio
+// nunca confirmado contra o MT5.
+const STOCH_OVERBOUGHT = 80;
+const STOCH_OVERSOLD = 20;
+
+/** Media movel simples de janela `period`, retorna série completa (NaN onde não há dados suficientes). */
+function calculateSmaSeries(values: number[], period: number): number[] {
+  const result: number[] = new Array(values.length).fill(NaN);
+  for (let i = period - 1; i < values.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += values[j];
+    result[i] = sum / period;
+  }
+  return result;
+}
+
+/**
+ * 🔴 2026-08-30 (pedido direto do Cleber, junto do MACD): Estocástico LENTO
+ * clássico -- %K rápido de cada vela = (close - menor_low_periodo) /
+ * (maior_high_periodo - menor_low_periodo) * 100 (período 14), %K lento =
+ * SMA3 do %K rápido, %D = SMA3 do %K lento. Mesma fonte/cache de
+ * `fetchRecentCandles` que MACD/ATR/tendência já usam -- se não houver
+ * candle real suficiente, retorna `null`, nunca fabrica indicador.
+ */
+// 🔴 2026-09-21 (pedido explicito do Cleber: "aonde deve ser observado... 5
+// minutos e 1 hora"): ate aqui o Estocastico so existia no timeframe
+// OPERACIONAL (5m na config atual) -- ao contrario da tendencia, que sempre
+// teve leitura de longo prazo dedicada (getLongTermTrendInfo/1H). Isso
+// deixava o motor literalmente CEGO a exaustao de 1H: confirmado no XETUSD
+// LONG de 2026-09-21, que gravou stochasticLabel=NEUTRO (leitura de 5m
+// correta e real) enquanto o Cleber via sobrecompra no grafico de 1H.
+// Mesmo timeframe fixo de getLongTermTrendInfo, mesma funcao/candle oficial.
+const STOCH_LONG_TERM_TIMEFRAME: SupportedTimeframe = "1H";
+
+export async function getLongTermSlowStochastic(symbol: string): Promise<SlowStochasticResult | null> {
+  return getSlowStochastic(symbol, STOCH_LONG_TERM_TIMEFRAME);
+}
+
+export async function getSlowStochastic(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<SlowStochasticResult | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  const minCandles = STOCH_PERIOD + STOCH_K_SMOOTHING + STOCH_D_SMOOTHING; // warm-up real pra dupla suavização
+  if (!candles || candles.length < minCandles) return null;
+
+  const closes = candles.map((c) => c.close);
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  if (!closes.every(Number.isFinite) || !highs.every(Number.isFinite) || !lows.every(Number.isFinite)) return null;
+
+  // %K rápido pra série completa (a partir de onde há janela de 14 velas).
+  const fastK: number[] = new Array(candles.length).fill(NaN);
+  for (let i = STOCH_PERIOD - 1; i < candles.length; i++) {
+    const windowHigh = Math.max(...highs.slice(i - STOCH_PERIOD + 1, i + 1));
+    const windowLow = Math.min(...lows.slice(i - STOCH_PERIOD + 1, i + 1));
+    const range = windowHigh - windowLow;
+    fastK[i] = range > 0 ? ((closes[i] - windowLow) / range) * 100 : 50; // range 0 = preço parado, neutro
+  }
+
+  const validFastK = fastK.filter((v) => Number.isFinite(v));
+  if (validFastK.length < STOCH_K_SMOOTHING + STOCH_D_SMOOTHING) return null;
+
+  const slowKSeries = calculateSmaSeries(validFastK, STOCH_K_SMOOTHING);
+  const validSlowK = slowKSeries.filter((v) => Number.isFinite(v));
+  if (validSlowK.length < STOCH_D_SMOOTHING) return null;
+
+  const dSeries = calculateSmaSeries(validSlowK, STOCH_D_SMOOTHING);
+
+  const lastK = validSlowK[validSlowK.length - 1];
+  const lastD = dSeries[dSeries.length - 1];
+  const lastRawK = validFastK[validFastK.length - 1];
+  if (!Number.isFinite(lastK) || !Number.isFinite(lastD) || !Number.isFinite(lastRawK)) return null;
+
+  const label: SlowStochasticResult["label"] =
+    lastK >= STOCH_OVERBOUGHT ? "SOBRECOMPRADO" : lastK <= STOCH_OVERSOLD ? "SOBREVENDIDO" : "NEUTRO";
+
+  let crossing: SlowStochasticResult["crossing"] = null;
+  const prevK = validSlowK[validSlowK.length - 2];
+  const prevD = dSeries[dSeries.length - 2];
+  if (Number.isFinite(prevK) && Number.isFinite(prevD)) {
+    const prevDiff = prevK - prevD;
+    const lastDiff = lastK - lastD;
+    if (prevDiff <= 0 && lastDiff > 0) crossing = "CRUZOU_PARA_CIMA";
+    else if (prevDiff >= 0 && lastDiff < 0) crossing = "CRUZOU_PARA_BAIXO";
+  }
+
+  return {
+    k: Number(lastK.toFixed(2)),
+    d: Number(lastD.toFixed(2)),
+    label,
+    crossing,
+    rawK: Number(lastRawK.toFixed(2)),
+    directionalHint: buildStochasticDirectionalHint(label, crossing),
+  };
+}
+
+// 🔴 2026-08-30 (pedido direto do Cleber, "10 padroes de candle mais
+// famosos"): reconhecimento de padroes classicos de candlestick, calculado
+// EM CIMA do MESMO candle OHLC oficial (fetchRecentCandles) que os outros
+// indicadores deste arquivo ja usam -- nenhum candle sintetico, nunca
+// fabrica padrao. Ao contrario de trend/volume/MACD/estocastico (que leem
+// so o FECHAMENTO das velas), isto e o primeiro indicador deste arquivo que
+// olha a FORMA da vela (corpo vs pavio superior/inferior) -- ate agora o
+// LLM nunca teve acesso a essa dimensao do candle (auditado nesta mesma
+// sessao: nenhum campo devolvido por get_mt5_quote expunha open/high/low/
+// close individual de vela nenhuma). Os 10 padroes: Doji, Martelo, Estrela
+// Cadente, Engolfo de Alta, Engolfo de Baixa, Harami de Alta, Harami de
+// Baixa, Estrela da Manha, Estrela da Noite, Marubozu (Alta/Baixa). Mesma
+// disciplina do resto do arquivo: `null` quando nao ha candle real
+// suficiente, deteccao puramente geometrica (razao corpo/pavio/range), sem
+// nenhum numero inventado.
+export interface CandlePatternResult {
+  /** Nomes dos padroes detectados terminando na ULTIMA vela fechada (pode ser mais de um). Vazio quando nenhum padrao bateu os criterios. */
+  detected: string[];
+  /** Vies classico agregado dos padroes detectados -- "ALTA" (reversao/continuacao compradora), "BAIXA" (vendedora), null quando nenhum padrao detectado ou padroes contraditorios entre si. */
+  bias: "ALTA" | "BAIXA" | null;
+  lookbackMinutes: number;
+  /** Timestamp (epoch ms) da vela mais recente FECHADA em que o padrao foi avaliado -- usado pra exigir que a entrada de REVERSAO so aconteca no candle SEGUINTE ao padrao (ver gate em tools.ts), nunca no mesmo candle em que o padrao acabou de fechar. */
+  patternCandleTimestamp: number;
+}
+
+const CANDLE_PATTERN_TREND_CONTEXT_CANDLES = 5; // ~25min antes do padrao, pra achar "veio de alta/baixa" (martelo/estrela cadente exigem contexto de tendencia pra fazer sentido classico)
+const CANDLE_PATTERN_TREND_MIN_PCT = 0.15; // mesmo limiar de TREND_FLAT_THRESHOLD_PCT acima -- abaixo disso nao conta como "vindo de tendencia" nenhuma
+
+interface CandleShape {
+  body: number;
+  range: number;
+  upperWick: number;
+  lowerWick: number;
+  bullish: boolean;
+  bodyRatio: number; // body / range, 0 quando range=0 (vela sem movimento nenhum)
+}
+
+function shapeOf(c: Candle): CandleShape {
+  const body = Math.abs(c.close - c.open);
+  const range = c.high - c.low;
+  const upperWick = c.high - Math.max(c.open, c.close);
+  const lowerWick = Math.min(c.open, c.close) - c.low;
+  const bullish = c.close > c.open;
+  return { body, range, upperWick, lowerWick, bullish, bodyRatio: range > 0 ? body / range : 0 };
+}
+
+/** Tendência simples de contexto (não é o mesmo TrendInfo público -- só olha o trecho ANTES do candle-alvo, pra padrões que exigem "veio de alta"/"veio de baixa" pra fazer sentido classico). */
+function priorTrendDirection(candles: Candle[], beforeIndex: number): "ALTA" | "BAIXA" | "LATERAL" {
+  const fromIdx = beforeIndex - CANDLE_PATTERN_TREND_CONTEXT_CANDLES;
+  if (fromIdx < 0) return "LATERAL";
+  const startClose = candles[fromIdx].close;
+  const endClose = candles[beforeIndex - 1]?.close;
+  if (!Number.isFinite(startClose) || !Number.isFinite(endClose) || startClose <= 0) return "LATERAL";
+  const changePct = ((endClose - startClose) / startClose) * 100;
+  if (Math.abs(changePct) < CANDLE_PATTERN_TREND_MIN_PCT) return "LATERAL";
+  return changePct > 0 ? "ALTA" : "BAIXA";
+}
+
+const MIN_CANDLES_FOR_PATTERNS = CANDLE_PATTERN_TREND_CONTEXT_CANDLES + 3; // contexto de tendencia + as ate 3 velas do padrao maior (estrela)
+
+/**
+ * Reconhece os 10 padrões de candlestick clássicos mais conhecidos, olhando
+ * as últimas 1-3 velas fechadas (a mais recente é sempre a última do
+ * padrão). Critérios geométricos padrão de mercado, deliberadamente
+ * simples e conservadores -- prefere não detectar (falso negativo) a
+ * inventar um padrão que não está lá (falso positivo).
+ */
+export async function getCandlePatterns(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<CandlePatternResult | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < MIN_CANDLES_FOR_PATTERNS) return null;
+
+  const n = candles.length;
+  const c0 = candles[n - 3]; // só existe/usado nos padrões de 3 velas
+  const c1 = candles[n - 2];
+  const c2 = candles[n - 1]; // vela mais recente fechada -- padrão sempre "termina" aqui
+  const s1 = shapeOf(c1);
+  const s2 = shapeOf(c2);
+  if (s2.range <= 0) return { detected: [], bias: null, lookbackMinutes: candles.length * 5, patternCandleTimestamp: c2.timestamp };
+
+  const detected: string[] = [];
+  const biases: Array<"ALTA" | "BAIXA"> = [];
+
+  // --- Padrões de 1 vela (avaliados na vela mais recente, c2) ---
+  const trendBeforeC2 = priorTrendDirection(candles, n - 1);
+
+  // Doji: corpo praticamente inexistente perto do range da vela -- indecisão.
+  if (s2.bodyRatio <= 0.1) {
+    detected.push("DOJI");
+    // Doji não tem viés direcional próprio -- só sinaliza indecisão/possível virada, sem contar pro bias agregado.
+  }
+
+  // Marubozu: corpo domina quase todo o range (pavios mínimos) -- convicção forte na direção do candle.
+  if (s2.bodyRatio >= 0.9) {
+    if (s2.bullish) {
+      detected.push("MARUBOZU_ALTA");
+      biases.push("ALTA");
+    } else {
+      detected.push("MARUBOZU_BAIXA");
+      biases.push("BAIXA");
+    }
+  }
+
+  // Martelo (Hammer): corpo pequeno no topo do range, pavio inferior longo (>=2x corpo), pavio superior mínimo -- reversão compradora, só faz sentido clássico depois de uma BAIXA.
+  if (
+    s2.body > 0 &&
+    s2.bodyRatio <= 0.35 &&
+    s2.lowerWick >= s2.body * 2 &&
+    s2.upperWick <= s2.range * 0.15 &&
+    trendBeforeC2 === "BAIXA"
+  ) {
+    detected.push("MARTELO");
+    biases.push("ALTA");
+  }
+
+  // Estrela Cadente (Shooting Star): espelho do martelo -- pavio superior longo, corpo pequeno na base, só faz sentido depois de uma ALTA.
+  if (
+    s2.body > 0 &&
+    s2.bodyRatio <= 0.35 &&
+    s2.upperWick >= s2.body * 2 &&
+    s2.lowerWick <= s2.range * 0.15 &&
+    trendBeforeC2 === "ALTA"
+  ) {
+    detected.push("ESTRELA_CADENTE");
+    biases.push("BAIXA");
+  }
+
+  // --- Padrões de 2 velas (c1 -> c2) ---
+  // Engolfo de Alta: c1 vermelha, c2 verde, e o corpo de c2 "engole" o corpo inteiro de c1.
+  if (!s1.bullish && s2.bullish && c2.open <= c1.close && c2.close >= c1.open && s2.body > s1.body) {
+    detected.push("ENGOLFO_ALTA");
+    biases.push("ALTA");
+  }
+  // Engolfo de Baixa: espelho.
+  if (s1.bullish && !s2.bullish && c2.open >= c1.close && c2.close <= c1.open && s2.body > s1.body) {
+    detected.push("ENGOLFO_BAIXA");
+    biases.push("BAIXA");
+  }
+
+  // Harami de Alta: c1 vermelha com corpo grande, c2 verde com corpo pequeno TOTALMENTE dentro do corpo de c1.
+  if (
+    !s1.bullish &&
+    s1.bodyRatio >= 0.5 &&
+    s2.bullish &&
+    s2.body < s1.body * 0.6 &&
+    c2.open >= c1.close &&
+    c2.close <= c1.open
+  ) {
+    detected.push("HARAMI_ALTA");
+    biases.push("ALTA");
+  }
+  // Harami de Baixa: espelho.
+  if (
+    s1.bullish &&
+    s1.bodyRatio >= 0.5 &&
+    !s2.bullish &&
+    s2.body < s1.body * 0.6 &&
+    c2.open <= c1.close &&
+    c2.close >= c1.open
+  ) {
+    detected.push("HARAMI_BAIXA");
+    biases.push("BAIXA");
+  }
+
+  // --- Padrões de 3 velas (c0 -> c1 -> c2), só avaliados se houver candle suficiente antes de c0 pro contexto ---
+  if (n - 3 - CANDLE_PATTERN_TREND_CONTEXT_CANDLES >= 0) {
+    const s0 = shapeOf(c0);
+    const midpointC0 = (c0.open + c0.close) / 2;
+
+    // Estrela da Manhã: vela 1 vermelha grande (queda), vela 2 pequena (indecisão, "estrela"), vela 3 verde grande fechando acima do meio da vela 1 -- reversão compradora clássica.
+    if (
+      !s0.bullish &&
+      s0.bodyRatio >= 0.5 &&
+      s1.bodyRatio <= 0.35 &&
+      Math.max(c1.open, c1.close) <= c0.close + s0.range * 0.1 &&
+      s2.bullish &&
+      s2.bodyRatio >= 0.5 &&
+      c2.close > midpointC0
+    ) {
+      detected.push("ESTRELA_DA_MANHA");
+      biases.push("ALTA");
+    }
+
+    // Estrela da Noite: espelho -- vela 1 verde grande, vela 2 pequena, vela 3 vermelha grande fechando abaixo do meio da vela 1.
+    if (
+      s0.bullish &&
+      s0.bodyRatio >= 0.5 &&
+      s1.bodyRatio <= 0.35 &&
+      Math.min(c1.open, c1.close) >= c0.close - s0.range * 0.1 &&
+      !s2.bullish &&
+      s2.bodyRatio >= 0.5 &&
+      c2.close < midpointC0
+    ) {
+      detected.push("ESTRELA_DA_NOITE");
+      biases.push("BAIXA");
+    }
+  }
+
+  const uniqueBiases = new Set(biases);
+  const bias: CandlePatternResult["bias"] = uniqueBiases.size === 1 ? [...uniqueBiases][0] : null;
+
+  return { detected, bias, lookbackMinutes: candles.length * 5, patternCandleTimestamp: c2.timestamp };
+}
+
+export interface MarketRegime {
+  /** Sessão global pelo horário UTC -- só contexto, nenhuma expectativa de volume/volatilidade fixada por sessão (cada mercado/ativo se comporta diferente). */
+  session: "ASIA" | "LONDRES" | "NY" | "ROLLOVER";
+  /** Rótulo de volume real (mesma fonte/razão de getVolumeConfirmation) -- BAIXO nao significa "sem oportunidade", é só o dado cru pro LLM cruzar com o resto. */
+  volumeLabel: "BAIXO" | "NORMAL" | "ALTO";
+  /** Rótulo de volatilidade real: ATR atual do símbolo comparado à própria janela recente (não é volatilidade absoluta entre ativos diferentes). */
+  volatilityLabel: "BAIXA" | "NORMAL" | "ALTA";
+  /**
+   * 🔴 2026-09-04 (pedido EXPLÍCITO do Cleber, horários fixos em Brasília,
+   * "precisa estar claro o que ela deve obedecer"): três fases da janela de
+   * maior probabilidade de movimento forte do dia, TODAS em horário de
+   * Brasília (UTC-3 fixo, sem DST desde 2019):
+   * - `PRE_MERCADO`: 09:00–09:30 Brasília -- abertura do pré-mercado.
+   * - `MOVIMENTO`: 09:30–10:00 Brasília -- "o mercado começa a se
+   *   movimentar" (é também, por coincidência de fuso nesta época do ano,
+   *   o horário-padrão de divulgação de indicadores dos EUA como NFP/CPI,
+   *   8h30 ET = 12:30 UTC = 9h30 Brasília em EDT -- ver usEconomicCalendar).
+   * - `ABERTURA`: 10:00–10:15 Brasília -- abertura do mercado à vista
+   *   americano (nota técnica: a abertura REAL da NYSE, 9h30 horário de NY,
+   *   cai em 10h30 Brasília em EDT / 11h30 em EST, não exatamente 10h00 --
+   *   usado aqui o horário exato que o Cleber definiu como o que o motor
+   *   deve obedecer, não o horário oficial da bolsa).
+   * `null` = fora dessas três janelas. Só contexto pro LLM, nunca vira
+   * trava mecânica nova -- baixo volume DENTRO dessa janela não significa
+   * "sem movimento", é frequentemente o oposto (ver princípio no
+   * GENESIS_PROMPT_MT5).
+   */
+  nySessionPhase: "PRE_MERCADO" | "MOVIMENTO" | "ABERTURA" | null;
+  /**
+   * 🔴 2026-09-04/05 (pedido direto do Cleber, entrando no fim de semana):
+   * fim de semana (Sábado inteiro + Domingo até 23:00 UTC, MESMA janela de
+   * `isForexMarketOpen` em assetBasket.ts) tem regime estruturalmente
+   * diferente -- volume geral mais baixo, spread tende a ser maior, e só
+   * cripto tem book líquido de verdade (forex/índices ficam com tick
+   * congelado, já excluídos da cesta via `isSymbolTradable`). Isto NÃO é
+   * trava mecânica nova -- é só CONTEXTO real (dia da semana, dado
+   * determinístico, nunca fabricado) pro LLM ponderar confluência com mais
+   * cautela nesse regime, mesmo padrão de volumeLabel/volatilityLabel acima.
+   */
+  isWeekend: boolean;
+  /**
+   * 🔴 2026-09-05 (pedido direto do Cleber -- "ela tem que saber se o
+   * mercado está largo, se está estreito, se está dando muito dinheiro ou
+   * se está dando pouco"): amplitude real (máxima-mínima) da janela de
+   * candle oficial disponível (mesma fonte de trend/volume/S&R), comparada
+   * à MÉDIA histórica de amplitude do próprio símbolo numa janela deslizante
+   * recente (não é comparação entre ativos diferentes, é o símbolo contra a
+   * própria história -- mesmo espírito de volatilityLabel acima). `pct` é a
+   * amplitude atual como fração do preço; `lookbackMinutes` deixa claro
+   * quantos minutos de candle real sustentam essa leitura (varia com o
+   * timeframe operacional escolhido). `label`: ESTREITO = mercado dando
+   * pouco espaço de movimento agora (alvo tem que ser realista, não pedir
+   * pro preço correr mais do que ele já provou que corre); AMPLO = mercado
+   * dando espaço de verdade (alvo pode e deve ser mais ambicioso). `null`
+   * quando não há candle real suficiente -- nunca fabrica amplitude.
+   */
+  range: { pct: number; label: "ESTREITO" | "NORMAL" | "AMPLO"; lookbackMinutes: number } | null;
+}
+
+// 🔴 2026-09-02 (pedido do Cleber): motor tratava baixo volume como sinônimo
+// de "não operar" (gate de R:R minimo pos-SR-cap bloqueando quase toda
+// entrada num dia de mercado lateral) -- mas baixo volume pode ser tendência
+// real e limpa com pouca resistência (caso real: BTCUSD caiu forte ontem com
+// volume baixo, o motor ficou de fora). Este regime é só CONTEXTO adicional
+// pro LLM julgar (ver GENESIS_PROMPT_MT5) -- não é uma trava mecânica nova,
+// nunca decide sozinho se abre ou não posição.
+const REGIME_VOLATILITY_LOOKBACK_CANDLES = 20;
+
+function getSessionLabel(now: Date = new Date()): MarketRegime["session"] {
+  const utcHour = now.getUTCHours();
+  if (utcHour >= 21 || utcHour < 0) return "ROLLOVER"; // nunca cai aqui (0 inclusivo abaixo), mantido por clareza
+  if (utcHour < 7) return "ASIA";
+  if (utcHour < 13) return "LONDRES";
+  if (utcHour < 21) return "NY";
+  return "ROLLOVER";
+}
+
+// 🔴 2026-09-04 (pedido EXPLÍCITO do Cleber -- "precisa estar claro o que
+// ela deve obedecer: 09:00h abertura do pré-mercado, 9:30h o mercado começa
+// a se movimentar, 10h abertura do mercado à vista americano"): horários
+// FIXOS em Brasília (UTC-3, sem DST desde 2019 -- conversão pra UTC é
+// sempre +3h, sem variação sazonal, ao contrário do horário oficial da
+// NYSE). Estes são os horários que o Cleber definiu como regra a obedecer,
+// não um cálculo derivado do horário oficial da bolsa (ver nota técnica no
+// comentário do campo nySessionPhase acima).
+const BRASILIA_UTC_OFFSET_HOURS = 3; // Brasília = UTC-3 sempre
+const PRE_MERCADO_START_BRASILIA_MIN = 9 * 60; // 09:00 Brasilia
+const MOVIMENTO_START_BRASILIA_MIN = 9 * 60 + 30; // 09:30 Brasilia
+const ABERTURA_START_BRASILIA_MIN = 10 * 60; // 10:00 Brasilia
+const ABERTURA_END_BRASILIA_MIN = 10 * 60 + 15; // 10:15 Brasilia -- ~15min de janela mais violenta
+
+// 🔴 2026-09-05: MESMA janela de `isWeekendMode` em assetBasket.ts (sexta
+// 17:00 Brasília -> domingo 19:00 Brasília, ou seja sexta >= 20:00 UTC /
+// domingo < 22:00 UTC / sábado inteiro) -- não importa de lá pra evitar
+// dependência circular (assetBasket.ts não importa atr.ts hoje; duplicar
+// essa checagem simples aqui é mais seguro que criar um import novo só por
+// isto). Se a janela de isWeekendMode mudar, replicar aqui também.
+// 🔴 2026-09-18 (pedido direto do Cleber): inicio adiantado de 18:00 ->
+// 17:00 Brasília (21*60 -> 20*60 UTC), toda sexta, permanente -- mesma
+// mudança replicada de assetBasket.ts, ver comentário lá.
+function isWeekendNow(now: Date = new Date()): boolean {
+  const utcDay = now.getUTCDay(); // 0 = Domingo, 6 = Sábado
+  const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (utcDay === 6) return true;
+  if (utcDay === 0 && totalMinutes < 22 * 60) return true;
+  if (utcDay === 5 && totalMinutes >= 20 * 60) return true;
+  return false;
+}
+
+function getNySessionPhase(now: Date = new Date()): MarketRegime["nySessionPhase"] {
+  const nowUtcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const nowBrasiliaMin = (nowUtcMin - BRASILIA_UTC_OFFSET_HOURS * 60 + 24 * 60) % (24 * 60);
+  if (nowBrasiliaMin >= PRE_MERCADO_START_BRASILIA_MIN && nowBrasiliaMin < MOVIMENTO_START_BRASILIA_MIN) return "PRE_MERCADO";
+  if (nowBrasiliaMin >= MOVIMENTO_START_BRASILIA_MIN && nowBrasiliaMin < ABERTURA_START_BRASILIA_MIN) return "MOVIMENTO";
+  if (nowBrasiliaMin >= ABERTURA_START_BRASILIA_MIN && nowBrasiliaMin < ABERTURA_END_BRASILIA_MIN) return "ABERTURA";
+  return null;
+}
+
+/**
+ * Regime de mercado (sessão + volume real + volatilidade real) pro LLM
+ * cruzar com os outros fatores de confluência que já usa -- nunca fabrica
+ * dado: sem candle real suficiente, retorna `null` (mesmo padrão de
+ * getTrendInfo/getVolumeConfirmation).
+ */
+export async function getMarketRegime(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<MarketRegime | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < REGIME_VOLATILITY_LOOKBACK_CANDLES + 14) return null;
+
+  const volume = await getVolumeConfirmation(symbol, timeframe);
+  if (!volume) return null;
+  const volumeLabel: MarketRegime["volumeLabel"] = volume.ratio < 0.7 ? "BAIXO" : volume.ratio > 1.3 ? "ALTO" : "NORMAL";
+
+  // ATR atual vs. a média de ATRs calculados numa janela deslizante recente do mesmo símbolo -- volatilidade relativa à própria história, não comparação entre ativos diferentes.
+  const window = candles.slice(-REGIME_VOLATILITY_LOOKBACK_CANDLES - 14);
+  const atrSeries: number[] = [];
+  for (let i = 14; i <= window.length; i++) {
+    const atr = calculateAtr(window.slice(0, i), 14);
+    if (atr != null) atrSeries.push(atr);
+  }
+  if (atrSeries.length < 2) return null;
+  const currentAtr = atrSeries[atrSeries.length - 1];
+  const avgAtr = atrSeries.reduce((a, b) => a + b, 0) / atrSeries.length;
+  if (!(avgAtr > 0)) return null;
+  const atrRatio = currentAtr / avgAtr;
+  const volatilityLabel: MarketRegime["volatilityLabel"] = atrRatio < 0.8 ? "BAIXA" : atrRatio > 1.25 ? "ALTA" : "NORMAL";
+
+  // Amplitude real (máxima-mínima) numa janela deslizante do MESMO tamanho
+  // usado acima pra ATR -- mesma disciplina (símbolo contra a própria
+  // história), mas medindo o range bruto, não a volatilidade vela-a-vela
+  // (ATR pode ficar "NORMAL" mesmo num dia cujo range acumulado é bem menor
+  // que o de costume, ou vice-versa -- são leituras diferentes).
+  const rangeSeries: number[] = [];
+  for (let i = REGIME_VOLATILITY_LOOKBACK_CANDLES; i <= candles.length; i++) {
+    const slice = candles.slice(i - REGIME_VOLATILITY_LOOKBACK_CANDLES, i);
+    const hi = Math.max(...slice.map((c) => c.high));
+    const lo = Math.min(...slice.map((c) => c.low));
+    const closeRef = slice[slice.length - 1].close;
+    if (closeRef > 0) rangeSeries.push((hi - lo) / closeRef);
+  }
+  let range: MarketRegime["range"] = null;
+  if (rangeSeries.length >= 2) {
+    const currentRangePct = rangeSeries[rangeSeries.length - 1];
+    const avgRangePct = rangeSeries.reduce((a, b) => a + b, 0) / rangeSeries.length;
+    if (avgRangePct > 0) {
+      const rangeRatio = currentRangePct / avgRangePct;
+      const rangeLabel: "ESTREITO" | "NORMAL" | "AMPLO" = rangeRatio < 0.7 ? "ESTREITO" : rangeRatio > 1.3 ? "AMPLO" : "NORMAL";
+      const minutesPerCandle = TIMEFRAME_MINUTES[timeframe] ?? 5;
+      range = { pct: currentRangePct, label: rangeLabel, lookbackMinutes: REGIME_VOLATILITY_LOOKBACK_CANDLES * minutesPerCandle };
+    }
+  }
+
+  return { session: getSessionLabel(), volumeLabel, volatilityLabel, nySessionPhase: getNySessionPhase(), isWeekend: isWeekendNow(), range };
+}
+
+// ============================================================================
+// MÉDIAS MÓVEIS DE REFERÊNCIA (2026-09-07, pedido direto do Cleber): EMA9,
+// SMA20 e SMA200 são as três médias mais observadas pelo mercado -- quando o
+// preço fica longe demais delas, a tendência estatística é reverter em
+// direção a elas (mean reversion). Isto é um SINAL DE ATENÇÃO pro LLM
+// ponderar (ex: comprar com o preço muito esticado acima das médias é
+// entrar tarde no movimento, mais vulnerável a um recuo), NUNCA uma trava
+// mecânica -- mesma disciplina de regime/candlePatterns/agenda econômica
+// acima, o Cleber foi explícito que é atenção, não regra.
+// ============================================================================
+
+export interface MovingAverageDistance {
+  /** EMA9 no timeframe operacional (mesmo candle oficial de trend/MACD/etc). */
+  ema9: number | null;
+  /** SMA20 no mesmo timeframe/candle. */
+  sma20: number | null;
+  /** SMA200 -- precisa de histórico bem maior (210 velas) que as outras métricas (60), buscado à parte com cache mais longo (mudança candle-a-candle é irrelevante numa média de 200 períodos). null quando a corretora não tem histórico suficiente -- nunca fabrica o valor. */
+  sma200: number | null;
+  /** Distância percentual do preço atual (close da última vela) até cada média, com sinal (positivo = preço acima da média). null quando a média correspondente não pôde ser calculada. */
+  distancePctFromEma9: number | null;
+  distancePctFromSma20: number | null;
+  distancePctFromSma200: number | null;
+  /** true quando a distância até QUALQUER UMA das médias disponíveis excede mt5MaExtensionAtrMultiplier vezes o ATR do símbolo -- preço estatisticamente esticado, maior chance de recuo antes de continuar. Só aviso, ver comentário do módulo acima. */
+  extended: boolean;
+}
+
+const SMA200_PERIOD = 200;
+const SMA200_FETCH_LIMIT = 210; // margem pequena acima do período pra sempre ter 200 valores fechados
+const SMA200_CACHE_TTL_MS = 30 * 60 * 1000; // 30min -- SMA200 varia muito pouco vela-a-vela, não precisa da mesma frescor que ATR/MACD/stop
+
+const longHistoryCache = new Map<string, { candles: Candle[]; fetchedAt: number }>();
+
+/** Fetch dedicado de histórico longo (200+ velas), só pra SMA200 -- reaproveita o MESMO semáforo (acquireCandleSlot/releaseCandleSlot) de fetchRecentCandles pra nunca estourar o teto de 2 requisições concorrentes da conta MetaAPI compartilhada, mas com cache muito mais longo (30min) pra não competir por slot com ATR/MACD/stop no ciclo quente. */
+async function fetchLongHistoryCandles(symbol: string, timeframe: SupportedTimeframe): Promise<Candle[] | null> {
+  const cacheKey = `${symbol}:${timeframe}:long`;
+  const cached = longHistoryCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < SMA200_CACHE_TTL_MS) return cached.candles;
+
+  await acquireCandleSlot();
+  try {
+    const url = `${config.neuralSupabaseUrl}/functions/v1/server/mt5-candles`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, timeframe, limit: SMA200_FETCH_LIMIT }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const result = (await res.json()) as Mt5CandlesResponse;
+    if (result.source === "SIMULATED") return null;
+    const candles = result.candles;
+    if (!Array.isArray(candles) || candles.length < SMA200_PERIOD) return null;
+    longHistoryCache.set(cacheKey, { candles, fetchedAt: Date.now() });
+    return candles;
+  } catch {
+    return null;
+  } finally {
+    releaseCandleSlot();
+  }
+}
+
+const EMA9_PERIOD = 9;
+const SMA20_PERIOD = 20;
+
+export async function getMovingAverageDistance(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<MovingAverageDistance | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < SMA20_PERIOD) return null;
+  const closes = candles.map((c) => c.close).filter((v) => Number.isFinite(v));
+  if (closes.length !== candles.length) return null;
+  const price = closes[closes.length - 1];
+  if (!(price > 0)) return null;
+
+  const ema9Series = calculateEmaSeries(closes, EMA9_PERIOD);
+  const ema9 = ema9Series ? ema9Series[ema9Series.length - 1] : null;
+  const sma20Series = calculateSmaSeries(closes, SMA20_PERIOD);
+  const sma20 = Number.isFinite(sma20Series[sma20Series.length - 1]) ? sma20Series[sma20Series.length - 1] : null;
+
+  let sma200: number | null = null;
+  const longCandles = await fetchLongHistoryCandles(symbol, timeframe);
+  if (longCandles) {
+    const longCloses = longCandles.map((c) => c.close).filter((v) => Number.isFinite(v));
+    if (longCloses.length === longCandles.length) {
+      const sma200Series = calculateSmaSeries(longCloses, SMA200_PERIOD);
+      const last = sma200Series[sma200Series.length - 1];
+      if (Number.isFinite(last)) sma200 = last;
+    }
+  }
+
+  const distancePctFromEma9 = ema9 != null && ema9 > 0 ? ((price - ema9) / ema9) * 100 : null;
+  const distancePctFromSma20 = sma20 != null && sma20 > 0 ? ((price - sma20) / sma20) * 100 : null;
+  const distancePctFromSma200 = sma200 != null && sma200 > 0 ? ((price - sma200) / sma200) * 100 : null;
+
+  const atrPct = await getAtrPercent(symbol, timeframe);
+  const extensionThresholdPct = atrPct != null ? atrPct * config.mt5MaExtensionAtrMultiplier * 100 : null;
+  const extended = extensionThresholdPct != null
+    ? [distancePctFromEma9, distancePctFromSma20, distancePctFromSma200].some(
+        (d) => d != null && Math.abs(d) > extensionThresholdPct,
+      )
+    : false;
+
+  return {
+    ema9: ema9 != null ? Number(ema9.toFixed(6)) : null,
+    sma20: sma20 != null ? Number(sma20.toFixed(6)) : null,
+    sma200: sma200 != null ? Number(sma200.toFixed(6)) : null,
+    distancePctFromEma9: distancePctFromEma9 != null ? Number(distancePctFromEma9.toFixed(3)) : null,
+    distancePctFromSma20: distancePctFromSma20 != null ? Number(distancePctFromSma20.toFixed(3)) : null,
+    distancePctFromSma200: distancePctFromSma200 != null ? Number(distancePctFromSma200.toFixed(3)) : null,
+    extended,
+  };
+}
+
+// ============================================================================
+// AGENDA ECONÔMICA (2026-09-04) -- pedido direto do Cleber: "tudo tem que
+// estar amarrado" à agenda econômica americana, porque a intensidade do
+// movimento do dia depende muito do que sai nela (achado confirmado ao vivo
+// nesta mesma sessão: NFP saiu 162K contra previsão de 56K às 12:30 UTC =
+// 09:30 Brasília, batendo EXATAMENTE no horário do rompimento que o Cleber
+// estava vendo no BTCUSD/GER40/SPX500 -- não coincidência, é a causa real).
+// Reaproveita o MESMO endpoint real (`/economic-calendar?country=US`) que o
+// motor mecânico aposentado (`ai-runner`) já usava como gate de risco (ver
+// supabase/functions/ai-runner/lib/marketContext.ts) -- aqui é só CONTEXTO
+// informativo pro LLM julgar, nunca trava mecânica nova (mesma disciplina
+// de regime/candlePatterns/etc). Nunca fabrica dado: fonte indisponível =
+// null, mesmo padrão do resto do arquivo.
+// ============================================================================
+
+export interface UsEconomicEvent {
+  time: string; // ISO
+  event: string;
+  impact: "high" | "medium" | "low";
+  actual: string;
+  forecast: string;
+  previous: string;
+}
+
+export interface UsEconomicCalendar {
+  /** Eventos de alto impacto (USD) de hoje, na ordem em que saem. */
+  highImpactToday: UsEconomicEvent[];
+  /**
+   * Evento de alto impacto mais recente que JÁ saiu (tem "actual" preenchido)
+   * nos últimos RECENT_RELEASE_WINDOW_MIN -- é o mais relevante pro momento
+   * atual, junto com se foi surpresa (actual muito diferente do forecast).
+   */
+  mostRecentRelease: UsEconomicEvent | null;
+  /** Próximo evento de alto impacto ainda não saído (sem "actual"), se houver. */
+  nextUpcoming: UsEconomicEvent | null;
+  /** 2026-10-23: eventos PMI de hoje (qualquer impacto: o calendario marca o PMI Flash como "medium"). Fora de `highImpactToday` de proposito: nao entram na trava de 60min pos-evento. */
+  pmiToday: UsEconomicEvent[];
+}
+
+const ECONOMIC_CALENDAR_CACHE_TTL_MS = 5 * 60 * 1000; // agenda muda pouco -- 5min de cache é seguro, evita bater no endpoint a cada ciclo
+const RECENT_RELEASE_WINDOW_MIN = 90; // ~1h30 -- movimento de reacao a evento de alto impacto tende a se estender por esse tanto
+let economicCalendarCache: { fetchedAt: number; calendar: UsEconomicCalendar | null } | null = null;
+
+/**
+ * Agenda econômica americana real, de alto impacto, pro LLM cruzar com
+ * regime.nySessionPhase e o resto da confluência técnica -- nunca decide
+ * sozinha, só contexto (ver princípio 1g/1c em agent.ts). `null` quando a
+ * fonte real não respondeu (nunca fabrica evento).
+ */
+export async function getUsEconomicCalendar(): Promise<UsEconomicCalendar | null> {
+  // Perto de um PMI (de -10 a +30 min) o "actual" aparece em segundos: cache curto, senao a LLM leria o dado 5 min atrasada.
+  const nearPmi = (economicCalendarCache?.calendar?.pmiToday ?? []).some((e) => {
+    const d = Date.now() - new Date(e.time).getTime();
+    return d > -10 * 60_000 && d < 30 * 60_000;
+  });
+  const calendarTtl = nearPmi ? 20_000 : ECONOMIC_CALENDAR_CACHE_TTL_MS;
+  if (economicCalendarCache && Date.now() - economicCalendarCache.fetchedAt < calendarTtl) {
+    return economicCalendarCache.calendar;
+  }
+  try {
+    const url = `${config.neuralSupabaseUrl}/functions/v1/server/economic-calendar?country=US&lang=en`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      economicCalendarCache = { fetchedAt: Date.now(), calendar: null };
+      return null;
+    }
+    const result = (await res.json()) as { events?: Array<Record<string, unknown>> };
+    if (!Array.isArray(result.events)) {
+      economicCalendarCache = { fetchedAt: Date.now(), calendar: null };
+      return null;
+    }
+
+    const highImpactToday: UsEconomicEvent[] = result.events
+      .filter((e) => e.impact === "high")
+      .map((e) => ({
+        time: String(e.time ?? ""),
+        event: String(e.event ?? ""),
+        impact: "high" as const,
+        actual: String(e.actual ?? ""),
+        forecast: String(e.forecast ?? ""),
+        previous: String(e.previous ?? ""),
+      }))
+      .filter((e) => e.time);
+
+    const now = Date.now();
+    const released = highImpactToday.filter((e) => e.actual !== "" && now - new Date(e.time).getTime() <= RECENT_RELEASE_WINDOW_MIN * 60_000);
+    const mostRecentRelease = released.length > 0 ? released[released.length - 1] : null;
+    const upcoming = highImpactToday.filter((e) => e.actual === "" && new Date(e.time).getTime() > now);
+    const nextUpcoming = upcoming.length > 0 ? upcoming[0] : null;
+
+    const pmiToday: UsEconomicEvent[] = result.events
+      .filter((e) => e.impact !== "low" && /\bPMI\b/i.test(String(e.event ?? "")) && e.time)
+      .map((e) => ({
+        time: String(e.time ?? ""),
+        event: String(e.event ?? ""),
+        impact: (e.impact === "high" ? "high" : "medium") as "high" | "medium",
+        actual: String(e.actual ?? ""),
+        forecast: String(e.forecast ?? ""),
+        previous: String(e.previous ?? ""),
+      }));
+    const calendar: UsEconomicCalendar = { highImpactToday, mostRecentRelease, nextUpcoming, pmiToday };
+    economicCalendarCache = { fetchedAt: Date.now(), calendar };
+    return calendar;
+  } catch {
+    economicCalendarCache = { fetchedAt: Date.now(), calendar: null };
+    return null;
+  }
+}
+
+/**
+ * 🔴 2026-09-16 (pedido direto do Cleber, Super Quarta/FOMC -- "dia atípico,
+ * mercado fica completamente inquieto... a forma de operar muda, é mais
+ * cautelosa"). Trava MECÂNICA (não só contexto, diferente do bloco acima):
+ * true quando "agora" cai dentro da janela de qualquer evento de alto
+ * impacto de hoje -- [evento.time - minutosAntes, evento.time + minutosDepois],
+ * união entre eventos (cobre automaticamente decisão+coletiva do Fed no
+ * mesmo dia, ou qualquer outro cluster). Genérico: vale pra QUALQUER evento
+ * impact="high" do calendário real (decisão de juros, discurso do Fed, NFP,
+ * CPI etc), não hardcoded pra FOMC. Nunca fabrica evento -- calendário null
+ * (fonte fora do ar) = retorna null (sem bloqueio, fail-open, mesmo padrão
+ * do resto do arquivo).
+ */
+/**
+ * 2026-10-23 (Cleber: "todas as vezes que tem PMI a LLM tem que responder"): estado do PMI mais proximo (hoje, nos ultimos 120 min
+ * ou ainda por vir). `minutesToRelease` < 0 = ja saiu ha N min. Nunca fabrica: sem calendario ou sem PMI, null.
+ */
+/**
+ * 2026-10-23 (Cleber): corredor do PMI marcado por ele, fixo por ativo: PMI_CORRIDORS="BTCUSD:81451.88-82035.03;ETHUSD:a-b".
+ * Ativo com corredor usa ESSES niveis (topo/fundo) pro rompimento; sem corredor, cai no S/R calculado de 5m.
+ * Rompimento = ultimo candle de 5m FECHADO (o penultimo da lista; o ultimo ainda esta em formacao) fechou alem do topo ou do fundo.
+ */
+export function getPmiCorridor(symbol: string): { bottom: number; top: number } | null {
+  for (const part of (process.env.PMI_CORRIDORS ?? "").split(";")) {
+    const [sym, range] = part.split(":");
+    if (!sym || !range || sym.trim().toUpperCase() !== symbol.toUpperCase()) continue;
+    const [a, b] = range.split("-").map((x) => parseFloat(x));
+    if (Number.isFinite(a) && Number.isFinite(b) && a !== b) return { bottom: Math.min(a, b), top: Math.max(a, b) };
+  }
+  return null;
+}
+
+export interface PmiBreakout {
+  side: "ALTA" | "BAIXA" | null;
+  top: number | null;
+  bottom: number | null;
+  source: "corredor_fixo" | "sr_5m";
+}
+
+export async function getPmiBreakout(symbol: string): Promise<PmiBreakout | null> {
+  const corridor = getPmiCorridor(symbol);
+  if (corridor) {
+    const candles = await fetchRecentCandles(symbol, "5m");
+    if (!candles || candles.length < 3) return null;
+    const lastClosed = candles[candles.length - 2].close;
+    const side = lastClosed > corridor.top ? "ALTA" : lastClosed < corridor.bottom ? "BAIXA" : null;
+    return { side, top: corridor.top, bottom: corridor.bottom, source: "corredor_fixo" };
+  }
+  const sr = await getSupportResistance(symbol, "5m");
+  if (!sr) return null;
+  const side = sr.closedAboveResistance ? "ALTA" : sr.closedBelowSupport ? "BAIXA" : null;
+  return { side, top: sr.resistance, bottom: sr.support, source: "sr_5m" };
+}
+
+export interface PmiStatus {
+  events: UsEconomicEvent[];
+  releaseAtMs: number;
+  minutesToRelease: number;
+  released: boolean;
+  summary: string;
+}
+
+function pmiSurprise(e: UsEconomicEvent): string {
+  const actual = parseFloat(e.actual);
+  if (!Number.isFinite(actual)) return "";
+  const ref = parseFloat(e.forecast);
+  const base = Number.isFinite(ref) ? ref : parseFloat(e.previous);
+  if (!Number.isFinite(base)) return "";
+  const diff = actual - base;
+  const vs = Number.isFinite(ref) ? "previsto" : "anterior";
+  return Math.abs(diff) < 0.1 ? ` (EM LINHA com o ${vs})` : ` (${diff > 0 ? "ACIMA" : "ABAIXO"} do ${vs} em ${Math.abs(diff).toFixed(1)})`;
+}
+
+export async function getPmiStatus(): Promise<PmiStatus | null> {
+  const calendar = await getUsEconomicCalendar();
+  const all = calendar?.pmiToday ?? [];
+  if (all.length === 0) return null;
+  const now = Date.now();
+  const sorted = [...all].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  const first = sorted.find((e) => new Date(e.time).getTime() + 120 * 60_000 > now);
+  if (!first) return null;
+  const releaseAtMs = new Date(first.time).getTime();
+  const events = sorted.filter((e) => new Date(e.time).getTime() === releaseAtMs);
+  const released = events.some((e) => e.actual !== "");
+  const summary = events
+    .map((e) => `${e.event}: real ${e.actual || "(ainda nao publicado)"}${pmiSurprise(e)} | previsto ${e.forecast || "n/d"} | anterior ${e.previous || "n/d"}`)
+    .join("\n");
+  return { events, releaseAtMs, minutesToRelease: (releaseAtMs - now) / 60_000, released, summary };
+}
+
+export interface HighImpactNewsWindow {
+  event: UsEconomicEvent;
+  minutesBefore: number;
+  minutesAfter: number;
+}
+
+export async function getActiveHighImpactNewsWindow(
+  minutesBefore: number,
+  minutesAfter: number,
+): Promise<HighImpactNewsWindow | null> {
+  const calendar = await getUsEconomicCalendar();
+  if (!calendar) return null;
+  const now = Date.now();
+  for (const event of calendar.highImpactToday) {
+    const eventTime = new Date(event.time).getTime();
+    if (!Number.isFinite(eventTime)) continue;
+    const windowStart = eventTime - minutesBefore * 60_000;
+    const windowEnd = eventTime + minutesAfter * 60_000;
+    if (now >= windowStart && now <= windowEnd) {
+      return { event, minutesBefore, minutesAfter };
+    }
+  }
+  return null;
+}
+
+// ============================================================================
+// VIX -- ÍNDICE DE VOLATILIDADE/APETITE A RISCO (2026-09-16, pedido direto do
+// Cleber, Super Quarta/FOMC: "a nossa AI tem que consultar o VIX diário...
+// atualizando 5x ao dia! Isso indica o apetite a risco do mercado"). Reaproveita
+// o MESMO endpoint real (`/vix`, Edge Function `server`) que o Dashboard já usa
+// -- NUNCA fabrica: quando todas as fontes reais (S&P Global/CBOE/Yahoo) falham,
+// esse endpoint devolve um valor de FALLBACK fixo (source: "Fallback
+// (Estimativa)", achado real nesta sessão, débito técnico pré-existente do
+// projeto) -- tratado aqui explicitamente como indisponível (null), nunca usado
+// como dado real pra decisão. Cache de 288min = 24h/5 = exatamente "5x ao dia".
+// ============================================================================
+
+export interface VixContext {
+  value: number;
+  changePercent: number;
+  source: string;
+  /** BAIXO (<15, complacência) / NORMAL (15-20) / ELEVADO (20-25) / ALTO (>25, medo real -- exige mais confirmação) */
+  label: "BAIXO" | "NORMAL" | "ELEVADO" | "ALTO";
+}
+
+let vixCache: { fetchedAt: number; vix: VixContext | null } | null = null;
+const VIX_FALLBACK_SOURCE_MARKER = "Fallback (Estimativa)";
+
+function classifyVix(value: number): VixContext["label"] {
+  if (value >= 25) return "ALTO";
+  if (value >= 20) return "ELEVADO";
+  if (value >= 15) return "NORMAL";
+  return "BAIXO";
+}
+
+export async function getVixContext(): Promise<VixContext | null> {
+  const ttlMs = config.vixCacheTtlMinutes * 60_000;
+  if (vixCache && Date.now() - vixCache.fetchedAt < ttlMs) return vixCache.vix;
+  try {
+    const url = `${config.neuralSupabaseUrl}/functions/v1/server/vix`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${config.neuralSupabaseAnonKey}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      vixCache = { fetchedAt: Date.now(), vix: null };
+      return null;
+    }
+    const result = (await res.json()) as { value?: unknown; changePercent?: unknown; source?: unknown };
+    const value = Number(result.value);
+    const source = String(result.source ?? "");
+    // nunca fabrica: fallback do endpoint (débito técnico já existente, não
+    // introduzido aqui) tratado como indisponível, não como dado real.
+    if (!Number.isFinite(value) || value <= 0 || source === VIX_FALLBACK_SOURCE_MARKER) {
+      vixCache = { fetchedAt: Date.now(), vix: null };
+      return null;
+    }
+    const vix: VixContext = {
+      value: Number(value.toFixed(2)),
+      changePercent: Number.isFinite(Number(result.changePercent)) ? Number(Number(result.changePercent).toFixed(2)) : 0,
+      source,
+      label: classifyVix(value),
+    };
+    vixCache = { fetchedAt: Date.now(), vix };
+    return vix;
+  } catch {
+    vixCache = { fetchedAt: Date.now(), vix: null };
+    return null;
+  }
+}
+
+// ============================================================================
+// ZONAS TÉCNICAS SMC (2026-09-09, pedido direto do Cleber -- "nosso motor
+// utilizará essas tecnologias pra ajudar na tomada de decisões"): Order
+// Blocks/Fair Value Gaps/Liquidity Pools do motor SMC determinístico (ver
+// `smc.ts`, portado do frontend onde já roda em produção há semanas). Igual
+// a `getSupportResistance`/`getMarketRegime` -- SÓ CONTEXTO adicional pro
+// LLM cruzar com o resto (veredito do llm-council 2026-09-09: nunca vira
+// gatilho mecânico novo de entrada/saída, o S/R simples que já existia
+// continua sendo o que cap a R:R em open_position). `null` sem candle real
+// suficiente -- nunca fabrica zona.
+// ============================================================================
+
+export interface SmcZoneSummaryItem {
+  type: SmcZoneType;
+  priceLow: number;
+  priceHigh: number;
+  strength: number;
+  mitigated: boolean;
+  distancePct: number; // distância do preço atual até o meio da zona, com sinal (+ acima, - abaixo)
+}
+
+export interface SmcZonesSummary {
+  nearestZones: SmcZoneSummaryItem[];
+  lastStructureEvent: { kind: "BOS" | "CHoCH"; direction: "bullish" | "bearish" } | null;
+}
+
+const SMC_MAX_ZONES_IN_SUMMARY = 4;
+
+export async function getSmcZonesSummary(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<SmcZonesSummary | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < 10) return null;
+
+  const lastClose = candles[candles.length - 1].close;
+  if (!(lastClose > 0)) return null;
+
+  const analysis = analyzeSmc(candles, symbol, timeframe);
+  const allZones = [...analysis.orderBlocks, ...analysis.fairValueGaps, ...analysis.liquidityPools].filter((z) => !z.mitigated);
+
+  const withDistance: SmcZoneSummaryItem[] = allZones.map((z) => {
+    const mid = (z.priceHigh + z.priceLow) / 2;
+    return {
+      type: z.type,
+      priceLow: z.priceLow,
+      priceHigh: z.priceHigh,
+      strength: z.strength,
+      mitigated: z.mitigated,
+      distancePct: ((mid - lastClose) / lastClose) * 100,
+    };
+  });
+
+  withDistance.sort((a, b) => Math.abs(a.distancePct) - Math.abs(b.distancePct));
+  const nearestZones = withDistance.slice(0, SMC_MAX_ZONES_IN_SUMMARY);
+
+  const lastStructureEvent = analysis.lastStructureEvent
+    ? { kind: analysis.lastStructureEvent.kind, direction: analysis.lastStructureEvent.direction }
+    : null;
+
+  return { nearestZones, lastStructureEvent };
+}
+
+/**
+ * 🔴 2026-09-09 (pedido direto do Cleber -- "Classificador de Regime de
+ * Mercado" via Hidden Markov Model, principal trava de segurança contra
+ * aplicar lógica de tendência num mercado consolidado ou vice-versa). Ver
+ * `hmmRegime.ts` pra explicação técnica completa do modelo -- aqui só busca
+ * o candle real (mesma fonte/cache de trend/volume/MACD acima) e delega a
+ * classificação pra função pura `classifyRegimeHmm`. `null` quando não há
+ * candle real suficiente, mesma disciplina de todo indicador neste arquivo.
+ */
+export async function getHmmMarketRegime(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<HmmRegimeResult | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles) return null;
+  return classifyRegimeHmm(candles);
+}

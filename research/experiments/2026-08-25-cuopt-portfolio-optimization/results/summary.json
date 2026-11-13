@@ -1,0 +1,29 @@
+[
+  {
+    "strategy": "sequencial",
+    "trades": 174,
+    "avgPositionsPerCycle": 1,
+    "netPercentTotal": -18.98004168103908,
+    "avgNetPercent": -0.10908069931631655,
+    "sharpe": -0.09312930908866425,
+    "dsr": 0.009602102564896742
+  },
+  {
+    "strategy": "aleatorio",
+    "trades": 346,
+    "avgPositionsPerCycle": 1.9833333333333334,
+    "netPercentTotal": -35.586067457812305,
+    "avgNetPercent": -0.10284990594743441,
+    "sharpe": -0.07828712369549336,
+    "dsr": 0.0012087891464957479
+  },
+  {
+    "strategy": "milp",
+    "trades": 412,
+    "avgPositionsPerCycle": 2.3648451730418945,
+    "netPercentTotal": -32.85185327272248,
+    "avgNetPercent": -0.07973750794350117,
+    "sharpe": -0.0631258161794897,
+    "dsr": 0.001325062502773311
+  }
+]
