@@ -3,6 +3,7 @@ import { config } from "./config.js";
 import { getAtrPercent, getDeepCandles, getLatestOneMinuteCandle, getOneMinuteCandlesSince } from "./atr.js";
 import { estimateCommissionUsd, estimateMidPriceRoundTripCostUsd } from "./commissionModel.js";
 import { recordPlatformCommission } from "./platformCommissionLedger.js";
+import { getDayRolloverStatus } from "./dayRollover.js";
 
 /**
  * Ponte pro Neural Day Trader (2026-08-28): espelha cada ordem real de
@@ -1528,6 +1529,20 @@ export async function enforceMt5StopsAndTargets(
     // do usuario fica so com o stop e o alvo que ELE marcou (SL/TP acima continuam valendo). Sem parcial, sem breakeven e sem trailing
     // automaticos. Rollback: MT5_MANUAL_ORDERS_AUTO_MANAGE=true.
     if (process.env.MT5_MANUAL_ORDERS_AUTO_MANAGE !== "true" && (await isManualOrder(pos.id))) continue;
+    // 2026-11-13 (Cleber): zerado na virada do dia do MT5 (17:00 Nova York). So a janela ANTES da virada fecha;
+    // stop/alvo acima ja tiveram a vez. Ordem manual do usuario nao entra (pulada logo acima).
+    if (!quote.stale && getDayRolloverStatus().phase === "BEFORE") {
+      const okRoll = await closeMt5Position({
+        tradeId: pos.id,
+        exitPrice: price,
+        exitReason: "TIMEOUT",
+        reasoning: `Fechamento MECANICO por virada do dia do MT5 (faltam ${getDayRolloverStatus().minutesToRollover} min para 17:00 Nova York): motor fica zerado na virada, preco real ${price}.`,
+      });
+      if (okRoll) {
+        closed.push({ tradeId: pos.id, symbol: pos.symbol, side: pos.side, reason: "TIMEOUT", entryPrice: pos.entry_price, exitPrice: price });
+      }
+      continue;
+    }
     // 2026-11-03 GESTAO DO CLEBER (ver config.ts mt5CleberMgmt): saida por prazo. Roda antes do teste de
     // "a favor" porque vale tambem para posicao parada ou perdendo.
     if (config.mt5CleberMgmt && !quote.stale) {

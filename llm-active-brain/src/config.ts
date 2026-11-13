@@ -975,6 +975,11 @@ export const config = {
   // 14h30 ET/18h30 UTC, duração média real ~1h) -- produz exatamente
   // 14:40-16:30 Brasília pedido pelo Cleber para hoje, mas a regra é
   // genérica: vale pra QUALQUER dia com evento de alto impacto, não só hoje.
+  // 2026-11-13 (Cleber): fora do mercado na virada do dia do MT5 (17:00 Nova York). Ver dayRollover.ts.
+  // Fecha as posicoes do motor ate N min antes da virada e bloqueia entrada ate N min depois. Rollback: DAY_ROLLOVER_FLAT_ACTIVE=false.
+  dayRolloverFlatActive: process.env.DAY_ROLLOVER_FLAT_ACTIVE !== "false",
+  dayRolloverMinutesBefore: Number(process.env.DAY_ROLLOVER_MINUTES_BEFORE ?? 30),
+  dayRolloverMinutesAfter: Number(process.env.DAY_ROLLOVER_MINUTES_AFTER ?? 30),
   highImpactNewsGateActive: process.env.HIGH_IMPACT_NEWS_GATE_ACTIVE !== "false",
   highImpactNewsGateMinutesBefore: Number(process.env.HIGH_IMPACT_NEWS_GATE_MINUTES_BEFORE ?? 20),
   highImpactNewsGateMinutesAfter: Number(process.env.HIGH_IMPACT_NEWS_GATE_MINUTES_AFTER ?? 60),
@@ -1168,7 +1173,8 @@ if (config.tradingEnabled) {
 // divergencia impossivel de passar em silencio de novo.
 const GOVERNANCE_CRITICAL_ENV_PARAMS: Array<{ envVar: string; canonical: string; motivo: string }> = [
   { envVar: "MT5_STOP_ATR_MULTIPLIER", canonical: "2.0", motivo: "decisao do llm-council 2026-09-04/05, ver CLAUDE.md" },
-  { envVar: "MT5_MAX_RISK_PCT_PER_TRADE", canonical: "0.10", motivo: "decisao do Cleber 2026-10-14 (compensar alvo curto no contrato), antes 0.08" },
+  { envVar: "MT5_MAX_RISK_PCT_PER_TRADE", canonical: "0.03", motivo: "padrao atual do Cleber (13/11/2026): replica 02/09 com lote 2,7; antes 0.10 (14/10) e 0.08" },
+  { envVar: "MT5_LOT_MULTIPLIER", canonical: "2.7", motivo: "padrao atual do Cleber (13/11/2026): lote 2,7 e o padrao" },
   { envVar: "MT5_TAKE_PROFIT_ATR_MULTIPLIER", canonical: "4.0", motivo: "R:R 1:2 pareado com stop 2.0x ATR, ver CLAUDE.md" },
   { envVar: "MT5_STOP_MIN_PCT", canonical: "0.0008", motivo: "20/10/2026 (Cleber): piso 0,3% descartava o stop de 2x ATR em ativo de baixa volatilidade (ouro/indices) e usava o reserva de 0,5%" },
   { envVar: "MT5_STOP_MAX_PCT", canonical: "0.02", motivo: "default de config.ts, acoplado ao stop 2.0x ATR" },

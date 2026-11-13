@@ -16,6 +16,7 @@ import { linkDeskDecisionToTrade } from "./deskStore.js";
 import { estimateCommissionUsd } from "./commissionModel.js";
 import { getFibLive, getFibState } from "./fibLive.js";
 import { getRiskScale } from "./riskScaler.js";
+import { getDayRolloverStatus } from "./dayRollover.js";
 import { planExpansion } from "./expansionPlan.js";
 import { isLiveExecutionActive, executeLiveMarketOrder, executeLiveClose, getLiveAccountInfo, tripLiveCircuitBreaker } from "./liveExecution.js";
 
@@ -1375,6 +1376,19 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // 8/8 trades fechados desde o restart de hoje saíram por STOP (zero
       // por alvo), com a IA invertendo direção 3x no mesmo ativo em ~7h --
       // padrão de whipsaw de véspera de evento de alto impacto.
+      // 2026-11-13 (Cleber): virada do dia do MT5 (17:00 Nova York) -- nada de entrada nova perto dela (o motor fica zerado na virada).
+      {
+        const rollover = getDayRolloverStatus();
+        if (rollover.phase) {
+          const __blocked = gateResult("VIRADA_DO_DIA", {
+            error: rollover.phase === "BEFORE"
+              ? `BLOQUEADO: faltam ${rollover.minutesToRollover} min para a virada do dia do MT5 (17:00 Nova York). Depois que o dia zera, o ativo tende a voltar contra o lado do dia ` +
+                `-- o motor fica fora do mercado nessa hora. Nenhuma posicao NOVA ate ${config.dayRolloverMinutesAfter} min depois da virada.`
+              : `BLOQUEADO: a virada do dia do MT5 passou ha ${rollover.minutesSinceRollover} min (janela de ${config.dayRolloverMinutesAfter} min). Espere a janela fechar para abrir posicao nova.`,
+          });
+          if (__blocked) return __blocked;
+        }
+      }
       if (config.highImpactNewsGateActive) {
         const activeNewsWindow = await getActiveHighImpactNewsWindow(
           config.highImpactNewsGateMinutesBefore,
