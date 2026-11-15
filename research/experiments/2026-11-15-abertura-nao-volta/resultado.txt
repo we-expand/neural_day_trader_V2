@@ -1,0 +1,188 @@
+
+=== AUDUSD_X (16774 velas, 5m) ===
+-- ancora utc12: 105 aberturas, 2 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  103 nao-volta(gen)= 31.1% nao-volta(rig)=  6.8% | segura: +0.0010%(±0.0193) acerto 50% | stop0: +0.0155%(±0.0105) acerto 31% | stop.1%: +0.0062%(±0.0158) acerto 49% | stop.3%: +0.0032%(±0.0174) acerto 50% |
+ H= 4h N=  103 nao-volta(gen)= 12.6% nao-volta(rig)=  3.9% | segura: -0.0047%(±0.0423) acerto 53% | stop0: +0.0204%(±0.0205) acerto 13% | stop.1%: +0.0149%(±0.0297) acerto 43% | stop.3%: +0.0089%(±0.0353) acerto 53% |
+ H=12h N=  103 nao-volta(gen)=  9.7% nao-volta(rig)=  3.9% | segura: +0.0173%(±0.0558) acerto 52% | stop0: +0.0326%(±0.0308) acerto 10% | stop.1%: +0.0353%(±0.0426) acerto 37% | stop.3%: +0.0287%(±0.0509) acerto 52% |
+-- ancora ny12: 105 aberturas, 1 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  104 nao-volta(gen)= 30.8% nao-volta(rig)= 10.6% | segura: +0.0071%(±0.0115) acerto 51% | stop0: +0.0126%(±0.0079) acerto 30% | stop.1%: +0.0085%(±0.0109) acerto 51% | stop.3%: +0.0071%(±0.0115) acerto 51% |
+ H= 4h N=  104 nao-volta(gen)=  8.7% nao-volta(rig)=  2.9% | segura: -0.0088%(±0.0320) acerto 51% | stop0: +0.0047%(±0.0138) acerto 9% | stop.1%: -0.0052%(±0.0231) acerto 38% | stop.3%: -0.0033%(±0.0287) acerto 51% |
+ H=12h N=  104 nao-volta(gen)=  4.8% nao-volta(rig)=  2.9% | segura: -0.0252%(±0.0571) acerto 44% | stop0: +0.0068%(±0.0163) acerto 5% | stop.1%: -0.0099%(±0.0316) acerto 26% | stop.3%: -0.0073%(±0.0460) acerto 43% |
+-- ancora ctrl: 2488 aberturas, 45 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N= 2438 nao-volta(gen)= 29.5% nao-volta(rig)= 10.6% | segura: +0.0095%(±0.0031) acerto 55% | stop0: +0.0132%(±0.0019) acerto 29% | stop.1%: +0.0109%(±0.0028) acerto 54% | stop.3%: +0.0097%(±0.0030) acerto 55% |
+ H= 4h N= 2443 nao-volta(gen)= 13.5% nao-volta(rig)=  4.6% | segura: +0.0080%(±0.0065) acerto 53% | stop0: +0.0138%(±0.0030) acerto 14% | stop.1%: +0.0105%(±0.0052) acerto 46% | stop.3%: +0.0101%(±0.0061) acerto 53% |
+ H=12h N= 2443 nao-volta(gen)=  7.7% nao-volta(rig)=  2.5% | segura: +0.0130%(±0.0118) acerto 51% | stop0: +0.0160%(±0.0043) acerto 8% | stop.1%: +0.0163%(±0.0082) acerto 31% | stop.3%: +0.0218%(±0.0105) acerto 51% |
+
+=== BNBUSDT (525605 velas, 1m) ===
+-- ancora utc12: 729 aberturas, 234 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  495 nao-volta(gen)= 13.9% nao-volta(rig)=  0.4% | segura: +0.0549%(±0.0325) acerto 57% | stop0: +0.0455%(±0.0167) acerto 14% | stop.1%: +0.0309%(±0.0222) acerto 32% | stop.3%: +0.0364%(±0.0291) acerto 50% |
+ H= 4h N=  495 nao-volta(gen)=  6.1% nao-volta(rig)=  0.2% | segura: +0.0882%(±0.0842) acerto 52% | stop0: +0.0551%(±0.0297) acerto 6% | stop.1%: +0.0542%(±0.0441) acerto 14% | stop.3%: +0.0629%(±0.0617) acerto 30% |
+ H=12h N=  495 nao-volta(gen)=  3.8% nao-volta(rig)=  0.2% | segura: +0.1613%(±0.1212) acerto 54% | stop0: +0.0343%(±0.0249) acerto 4% | stop.1%: +0.0334%(±0.0474) acerto 9% | stop.3%: +0.0526%(±0.0712) acerto 22% |
+-- ancora ny12: 729 aberturas, 192 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  537 nao-volta(gen)= 15.6% nao-volta(rig)=  0.6% | segura: +0.0286%(±0.0298) acerto 55% | stop0: +0.0415%(±0.0127) acerto 16% | stop.1%: +0.0407%(±0.0200) acerto 38% | stop.3%: +0.0307%(±0.0249) acerto 52% |
+ H= 4h N=  537 nao-volta(gen)=  5.4% nao-volta(rig)=  0.0% | segura: +0.0129%(±0.0698) acerto 52% | stop0: +0.0269%(±0.0156) acerto 5% | stop.1%: +0.0346%(±0.0317) acerto 17% | stop.3%: +0.0224%(±0.0435) acerto 36% |
+ H=12h N=  537 nao-volta(gen)=  2.6% nao-volta(rig)=  0.0% | segura: +0.0200%(±0.1280) acerto 55% | stop0: +0.0260%(±0.0207) acerto 3% | stop.1%: +0.0159%(±0.0360) acerto 9% | stop.3%: +0.0437%(±0.0686) acerto 22% |
+-- ancora utc24: 365 aberturas, 124 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  241 nao-volta(gen)= 11.2% nao-volta(rig)=  0.4% | segura: +0.0485%(±0.0425) acerto 55% | stop0: +0.0315%(±0.0190) acerto 11% | stop.1%: +0.0124%(±0.0280) acerto 29% | stop.3%: +0.0094%(±0.0395) acerto 47% |
+ H= 4h N=  241 nao-volta(gen)=  5.8% nao-volta(rig)=  0.4% | segura: +0.0251%(±0.1059) acerto 50% | stop0: +0.0423%(±0.0340) acerto 6% | stop.1%: +0.0401%(±0.0558) acerto 13% | stop.3%: -0.0167%(±0.0724) acerto 27% |
+ H=12h N=  241 nao-volta(gen)=  3.3% nao-volta(rig)=  0.4% | segura: +0.2169%(±0.1628) acerto 56% | stop0: +0.0211%(±0.0269) acerto 3% | stop.1%: +0.0129%(±0.0618) acerto 8% | stop.3%: +0.0110%(±0.0972) acerto 20% |
+-- ancora nyopen: 260 aberturas, 161 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=   99 nao-volta(gen)= 10.1% nao-volta(rig)=  0.0% | segura: +0.1282%(±0.1333) acerto 64% | stop0: +0.0457%(±0.0485) acerto 10% | stop.1%: +0.0721%(±0.0693) acerto 29% | stop.3%: +0.0453%(±0.0863) acerto 47% |
+ H= 4h N=   99 nao-volta(gen)=  6.1% nao-volta(rig)=  0.0% | segura: +0.0739%(±0.2541) acerto 58% | stop0: +0.0451%(±0.0576) acerto 6% | stop.1%: +0.0615%(±0.0839) acerto 19% | stop.3%: -0.0026%(±0.1115) acerto 29% |
+ H=12h N=   99 nao-volta(gen)=  3.0% nao-volta(rig)=  0.0% | segura: -0.1288%(±0.2890) acerto 47% | stop0: +0.0347%(±0.0610) acerto 3% | stop.1%: +0.0723%(±0.1200) acerto 11% | stop.3%: -0.0516%(±0.1357) acerto 17% |
+-- ancora ctrl: 17496 aberturas, 5630 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=11866 nao-volta(gen)= 13.6% nao-volta(rig)=  0.5% | segura: +0.0400%(±0.0072) acerto 55% | stop0: +0.0465%(±0.0036) acerto 14% | stop.1%: +0.0432%(±0.0049) acerto 34% | stop.3%: +0.0417%(±0.0061) acerto 51% |
+ H= 4h N=11866 nao-volta(gen)=  6.5% nao-volta(rig)=  0.2% | segura: +0.0363%(±0.0151) acerto 52% | stop0: +0.0474%(±0.0051) acerto 7% | stop.1%: +0.0487%(±0.0076) acerto 18% | stop.3%: +0.0497%(±0.0104) acerto 37% |
+ H=12h N=11866 nao-volta(gen)=  3.6% nao-volta(rig)=  0.1% | segura: +0.0337%(±0.0272) acerto 51% | stop0: +0.0476%(±0.0071) acerto 4% | stop.1%: +0.0566%(±0.0113) acerto 10% | stop.3%: +0.0618%(±0.0157) acerto 24% |
+
+=== BTCUSDT (525605 velas, 1m) ===
+-- ancora utc12: 729 aberturas, 231 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  498 nao-volta(gen)= 14.7% nao-volta(rig)=  0.8% | segura: +0.0553%(±0.0324) acerto 56% | stop0: +0.0455%(±0.0159) acerto 14% | stop.1%: +0.0467%(±0.0222) acerto 37% | stop.3%: +0.0441%(±0.0284) acerto 53% |
+ H= 4h N=  498 nao-volta(gen)=  5.6% nao-volta(rig)=  0.2% | segura: +0.0842%(±0.0879) acerto 52% | stop0: +0.0422%(±0.0279) acerto 6% | stop.1%: +0.0427%(±0.0425) acerto 16% | stop.3%: +0.0483%(±0.0592) acerto 32% |
+ H=12h N=  498 nao-volta(gen)=  3.8% nao-volta(rig)=  0.2% | segura: +0.1165%(±0.1256) acerto 52% | stop0: +0.0494%(±0.0361) acerto 4% | stop.1%: +0.0354%(±0.0495) acerto 10% | stop.3%: +0.0698%(±0.0759) acerto 24% |
+-- ancora ny12: 729 aberturas, 166 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  563 nao-volta(gen)= 14.9% nao-volta(rig)=  1.8% | segura: +0.0417%(±0.0273) acerto 54% | stop0: +0.0393%(±0.0144) acerto 15% | stop.1%: +0.0431%(±0.0202) acerto 38% | stop.3%: +0.0382%(±0.0253) acerto 51% |
+ H= 4h N=  563 nao-volta(gen)=  6.7% nao-volta(rig)=  0.7% | segura: +0.0240%(±0.0621) acerto 51% | stop0: +0.0397%(±0.0204) acerto 7% | stop.1%: +0.0210%(±0.0287) acerto 19% | stop.3%: +0.0258%(±0.0458) acerto 36% |
+ H=12h N=  563 nao-volta(gen)=  4.4% nao-volta(rig)=  0.5% | segura: -0.0188%(±0.1250) acerto 51% | stop0: +0.0475%(±0.0271) acerto 4% | stop.1%: +0.0308%(±0.0470) acerto 10% | stop.3%: +0.0233%(±0.0665) acerto 22% |
+-- ancora utc24: 365 aberturas, 130 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  235 nao-volta(gen)= 15.3% nao-volta(rig)=  0.9% | segura: +0.0475%(±0.0440) acerto 53% | stop0: +0.0464%(±0.0227) acerto 15% | stop.1%: +0.0404%(±0.0306) acerto 37% | stop.3%: +0.0182%(±0.0388) acerto 49% |
+ H= 4h N=  235 nao-volta(gen)=  7.7% nao-volta(rig)=  0.0% | segura: +0.0565%(±0.0949) acerto 53% | stop0: +0.0466%(±0.0313) acerto 8% | stop.1%: +0.0292%(±0.0456) acerto 19% | stop.3%: -0.0067%(±0.0633) acerto 34% |
+ H=12h N=  235 nao-volta(gen)=  5.5% nao-volta(rig)=  0.0% | segura: +0.1704%(±0.1571) acerto 54% | stop0: +0.0734%(±0.0589) acerto 6% | stop.1%: +0.0467%(±0.0695) acerto 12% | stop.3%: +0.0333%(±0.0928) acerto 27% |
+-- ancora nyopen: 260 aberturas, 177 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=   83 nao-volta(gen)= 12.0% nao-volta(rig)=  0.0% | segura: +0.2851%(±0.2074) acerto 58% | stop0: +0.1701%(±0.1426) acerto 12% | stop.1%: +0.1738%(±0.1508) acerto 24% | stop.3%: +0.1512%(±0.1696) acerto 37% |
+ H= 4h N=   83 nao-volta(gen)=  9.6% nao-volta(rig)=  0.0% | segura: +0.2496%(±0.3352) acerto 53% | stop0: +0.1548%(±0.1521) acerto 10% | stop.1%: +0.2345%(±0.2115) acerto 20% | stop.3%: +0.1969%(±0.2319) acerto 30% |
+ H=12h N=   83 nao-volta(gen)=  7.2% nao-volta(rig)=  0.0% | segura: +0.0462%(±0.3585) acerto 48% | stop0: +0.1308%(±0.1346) acerto 7% | stop.1%: +0.1475%(±0.1614) acerto 14% | stop.3%: +0.0731%(±0.1838) acerto 23% |
+-- ancora ctrl: 17496 aberturas, 5354 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=12141 nao-volta(gen)= 15.2% nao-volta(rig)=  1.4% | segura: +0.0412%(±0.0069) acerto 55% | stop0: +0.0467%(±0.0037) acerto 15% | stop.1%: +0.0404%(±0.0048) acerto 36% | stop.3%: +0.0411%(±0.0059) acerto 51% |
+ H= 4h N=12142 nao-volta(gen)=  7.0% nao-volta(rig)=  0.6% | segura: +0.0355%(±0.0146) acerto 52% | stop0: +0.0462%(±0.0050) acerto 7% | stop.1%: +0.0416%(±0.0075) acerto 19% | stop.3%: +0.0445%(±0.0102) acerto 38% |
+ H=12h N=12142 nao-volta(gen)=  3.7% nao-volta(rig)=  0.3% | segura: +0.0322%(±0.0261) acerto 52% | stop0: +0.0454%(±0.0065) acerto 4% | stop.1%: +0.0389%(±0.0099) acerto 10% | stop.3%: +0.0491%(±0.0148) acerto 24% |
+
+=== DOGEUSDT (525605 velas, 1m) ===
+-- ancora utc12: 729 aberturas, 405 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  324 nao-volta(gen)= 12.7% nao-volta(rig)=  0.0% | segura: +0.0974%(±0.0650) acerto 54% | stop0: +0.0826%(±0.0387) acerto 13% | stop.1%: +0.0705%(±0.0458) acerto 27% | stop.3%: +0.0714%(±0.0547) acerto 45% |
+ H= 4h N=  324 nao-volta(gen)=  4.9% nao-volta(rig)=  0.0% | segura: +0.1089%(±0.1684) acerto 54% | stop0: +0.0839%(±0.0625) acerto 5% | stop.1%: +0.0816%(±0.0778) acerto 11% | stop.3%: +0.1453%(±0.1119) acerto 28% |
+ H=12h N=  324 nao-volta(gen)=  3.4% nao-volta(rig)=  0.0% | segura: +0.2039%(±0.2313) acerto 52% | stop0: +0.0791%(±0.0698) acerto 3% | stop.1%: +0.0839%(±0.0942) acerto 7% | stop.3%: +0.1301%(±0.1347) acerto 17% |
+-- ancora ny12: 729 aberturas, 386 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  343 nao-volta(gen)= 10.8% nao-volta(rig)=  0.0% | segura: +0.0971%(±0.0636) acerto 56% | stop0: +0.0651%(±0.0316) acerto 11% | stop.1%: +0.0889%(±0.0416) acerto 30% | stop.3%: +0.0811%(±0.0505) acerto 48% |
+ H= 4h N=  343 nao-volta(gen)=  3.8% nao-volta(rig)=  0.0% | segura: -0.0282%(±0.1241) acerto 51% | stop0: +0.0401%(±0.0312) acerto 4% | stop.1%: +0.0264%(±0.0457) acerto 11% | stop.3%: -0.0104%(±0.0648) acerto 25% |
+ H=12h N=  343 nao-volta(gen)=  2.3% nao-volta(rig)=  0.0% | segura: +0.1354%(±0.2337) acerto 52% | stop0: +0.0479%(±0.0467) acerto 2% | stop.1%: +0.0494%(±0.0761) acerto 6% | stop.3%: +0.0949%(±0.1259) acerto 16% |
+-- ancora utc24: 365 aberturas, 207 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  158 nao-volta(gen)= 13.3% nao-volta(rig)=  0.0% | segura: +0.0784%(±0.0922) acerto 51% | stop0: +0.0782%(±0.0564) acerto 13% | stop.1%: +0.0617%(±0.0681) acerto 25% | stop.3%: +0.0469%(±0.0824) acerto 42% |
+ H= 4h N=  158 nao-volta(gen)=  5.1% nao-volta(rig)=  0.0% | segura: -0.0340%(±0.2045) acerto 53% | stop0: +0.0519%(±0.0555) acerto 5% | stop.1%: -0.0088%(±0.0603) acerto 9% | stop.3%: +0.0175%(±0.1120) acerto 25% |
+ H=12h N=  158 nao-volta(gen)=  3.8% nao-volta(rig)=  0.0% | segura: +0.1673%(±0.2968) acerto 53% | stop0: +0.0525%(±0.0593) acerto 4% | stop.1%: -0.0101%(±0.0662) acerto 6% | stop.3%: +0.0507%(±0.1533) acerto 16% |
+-- ancora nyopen: 260 aberturas, 207 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=   53 nao-volta(gen)=  7.5% nao-volta(rig)=  0.0% | segura: +0.2814%(±0.2974) acerto 58% | stop0: +0.1419%(±0.1645) acerto 8% | stop.1%: +0.1385%(±0.1816) acerto 17% | stop.3%: +0.0712%(±0.1993) acerto 30% |
+ H= 4h N=   53 nao-volta(gen)=  5.7% nao-volta(rig)=  0.0% | segura: +0.1951%(±0.6633) acerto 66% | stop0: +0.1160%(±0.1626) acerto 6% | stop.1%: +0.1646%(±0.2382) acerto 11% | stop.3%: +0.0922%(±0.2634) acerto 21% |
+ H=12h N=   53 nao-volta(gen)=  3.8% nao-volta(rig)=  0.0% | segura: +0.0144%(±0.6938) acerto 51% | stop0: +0.1231%(±0.1843) acerto 4% | stop.1%: +0.1384%(±0.2408) acerto 8% | stop.3%: +0.1099%(±0.3109) acerto 13% |
+-- ancora ctrl: 17496 aberturas, 9690 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N= 7806 nao-volta(gen)= 11.9% nao-volta(rig)=  0.0% | segura: +0.0684%(±0.0135) acerto 55% | stop0: +0.0687%(±0.0065) acerto 12% | stop.1%: +0.0739%(±0.0087) acerto 28% | stop.3%: +0.0716%(±0.0107) acerto 47% |
+ H= 4h N= 7806 nao-volta(gen)=  5.8% nao-volta(rig)=  0.0% | segura: +0.0773%(±0.0286) acerto 54% | stop0: +0.0706%(±0.0095) acerto 6% | stop.1%: +0.0766%(±0.0129) acerto 14% | stop.3%: +0.0829%(±0.0176) acerto 29% |
+ H=12h N= 7806 nao-volta(gen)=  3.1% nao-volta(rig)=  0.0% | segura: +0.0838%(±0.0507) acerto 52% | stop0: +0.0684%(±0.0119) acerto 3% | stop.1%: +0.0793%(±0.0179) acerto 8% | stop.3%: +0.0955%(±0.0256) acerto 17% |
+
+=== ETHUSDT (525605 velas, 1m) ===
+-- ancora utc12: 729 aberturas, 307 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  422 nao-volta(gen)= 12.6% nao-volta(rig)=  0.5% | segura: +0.0546%(±0.0438) acerto 54% | stop0: +0.0507%(±0.0190) acerto 13% | stop.1%: +0.0363%(±0.0252) acerto 31% | stop.3%: +0.0364%(±0.0344) acerto 48% |
+ H= 4h N=  422 nao-volta(gen)=  5.7% nao-volta(rig)=  0.2% | segura: +0.1472%(±0.1293) acerto 52% | stop0: +0.0594%(±0.0410) acerto 6% | stop.1%: +0.0661%(±0.0642) acerto 13% | stop.3%: +0.1351%(±0.0956) acerto 28% |
+ H=12h N=  422 nao-volta(gen)=  3.1% nao-volta(rig)=  0.2% | segura: +0.2372%(±0.1962) acerto 56% | stop0: +0.0657%(±0.0497) acerto 3% | stop.1%: +0.0999%(±0.1040) acerto 8% | stop.3%: +0.2043%(±0.1401) acerto 21% |
+-- ancora ny12: 729 aberturas, 251 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  478 nao-volta(gen)= 14.0% nao-volta(rig)=  1.7% | segura: +0.0473%(±0.0407) acerto 52% | stop0: +0.0602%(±0.0244) acerto 14% | stop.1%: +0.0585%(±0.0295) acerto 33% | stop.3%: +0.0478%(±0.0366) acerto 48% |
+ H= 4h N=  478 nao-volta(gen)=  4.0% nao-volta(rig)=  0.2% | segura: +0.0222%(±0.0951) acerto 49% | stop0: +0.0537%(±0.0389) acerto 4% | stop.1%: +0.0193%(±0.0448) acerto 12% | stop.3%: +0.0163%(±0.0608) acerto 30% |
+ H=12h N=  478 nao-volta(gen)=  2.1% nao-volta(rig)=  0.0% | segura: +0.1151%(±0.1908) acerto 53% | stop0: +0.0539%(±0.0456) acerto 2% | stop.1%: +0.0317%(±0.0642) acerto 6% | stop.3%: +0.0674%(±0.1084) acerto 19% |
+-- ancora utc24: 365 aberturas, 167 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  198 nao-volta(gen)= 12.6% nao-volta(rig)=  1.0% | segura: +0.0736%(±0.0583) acerto 51% | stop0: +0.0410%(±0.0239) acerto 13% | stop.1%: +0.0290%(±0.0350) acerto 30% | stop.3%: +0.0159%(±0.0473) acerto 44% |
+ H= 4h N=  198 nao-volta(gen)=  6.1% nao-volta(rig)=  0.5% | segura: +0.0654%(±0.1515) acerto 50% | stop0: +0.0423%(±0.0352) acerto 6% | stop.1%: +0.0483%(±0.0623) acerto 15% | stop.3%: +0.0286%(±0.0994) acerto 27% |
+ H=12h N=  198 nao-volta(gen)=  4.5% nao-volta(rig)=  0.5% | segura: +0.2870%(±0.2181) acerto 57% | stop0: +0.0812%(±0.0643) acerto 5% | stop.1%: +0.1030%(±0.0927) acerto 11% | stop.3%: +0.1248%(±0.1439) acerto 23% |
+-- ancora nyopen: 260 aberturas, 201 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=   59 nao-volta(gen)= 22.0% nao-volta(rig)=  0.0% | segura: +0.3618%(±0.3012) acerto 64% | stop0: +0.1696%(±0.0986) acerto 22% | stop.1%: +0.1359%(±0.1128) acerto 27% | stop.3%: +0.1672%(±0.2238) acerto 37% |
+ H= 4h N=   59 nao-volta(gen)= 15.3% nao-volta(rig)=  0.0% | segura: +0.1936%(±0.5541) acerto 58% | stop0: +0.2101%(±0.1489) acerto 15% | stop.1%: +0.1774%(±0.1649) acerto 19% | stop.3%: +0.1917%(±0.2552) acerto 27% |
+ H=12h N=   59 nao-volta(gen)= 10.2% nao-volta(rig)=  0.0% | segura: +0.0734%(±0.5624) acerto 54% | stop0: +0.1629%(±0.1504) acerto 10% | stop.1%: +0.0943%(±0.1575) acerto 12% | stop.3%: +0.1331%(±0.2606) acerto 20% |
+-- ancora ctrl: 17496 aberturas, 7407 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=10089 nao-volta(gen)= 13.5% nao-volta(rig)=  0.7% | segura: +0.0613%(±0.0103) acerto 55% | stop0: +0.0627%(±0.0055) acerto 14% | stop.1%: +0.0535%(±0.0067) acerto 32% | stop.3%: +0.0593%(±0.0086) acerto 49% |
+ H= 4h N=10089 nao-volta(gen)=  6.1% nao-volta(rig)=  0.2% | segura: +0.0728%(±0.0218) acerto 52% | stop0: +0.0647%(±0.0079) acerto 6% | stop.1%: +0.0541%(±0.0103) acerto 16% | stop.3%: +0.0774%(±0.0147) acerto 33% |
+ H=12h N=10089 nao-volta(gen)=  3.3% nao-volta(rig)=  0.1% | segura: +0.0676%(±0.0396) acerto 52% | stop0: +0.0664%(±0.0106) acerto 3% | stop.1%: +0.0578%(±0.0148) acerto 8% | stop.3%: +0.0878%(±0.0215) acerto 20% |
+
+=== EURUSD_X (16761 velas, 5m) ===
+-- ancora utc12: 105 aberturas, 8 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=   97 nao-volta(gen)= 21.6% nao-volta(rig)=  1.0% | segura: -0.0054%(±0.0169) acerto 51% | stop0: +0.0041%(±0.0067) acerto 22% | stop.1%: -0.0025%(±0.0121) acerto 49% | stop.3%: -0.0023%(±0.0132) acerto 51% |
+ H= 4h N=   97 nao-volta(gen)=  8.2% nao-volta(rig)=  0.0% | segura: -0.0343%(±0.0324) acerto 44% | stop0: -0.0007%(±0.0065) acerto 8% | stop.1%: -0.0110%(±0.0194) acerto 43% | stop.3%: -0.0236%(±0.0255) acerto 44% |
+ H=12h N=   97 nao-volta(gen)=  6.2% nao-volta(rig)=  0.0% | segura: -0.0549%(±0.0409) acerto 46% | stop0: +0.0021%(±0.0118) acerto 6% | stop.1%: -0.0181%(±0.0263) acerto 32% | stop.3%: -0.0508%(±0.0372) acerto 45% |
+-- ancora ny12: 105 aberturas, 22 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=   83 nao-volta(gen)= 27.7% nao-volta(rig)=  1.2% | segura: +0.0124%(±0.0112) acerto 69% | stop0: +0.0064%(±0.0066) acerto 28% | stop.1%: +0.0129%(±0.0109) acerto 69% | stop.3%: +0.0124%(±0.0112) acerto 69% |
+ H= 4h N=   83 nao-volta(gen)= 12.0% nao-volta(rig)=  0.0% | segura: +0.0005%(±0.0295) acerto 54% | stop0: +0.0079%(±0.0152) acerto 12% | stop.1%: +0.0091%(±0.0218) acerto 51% | stop.3%: +0.0033%(±0.0270) acerto 54% |
+ H=12h N=   83 nao-volta(gen)=  3.6% nao-volta(rig)=  0.0% | segura: +0.0209%(±0.0488) acerto 53% | stop0: +0.0029%(±0.0179) acerto 4% | stop.1%: +0.0279%(±0.0395) acerto 42% | stop.3%: +0.0094%(±0.0506) acerto 53% |
+-- ancora ctrl: 2482 aberturas, 261 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N= 2221 nao-volta(gen)= 18.8% nao-volta(rig)=  0.6% | segura: +0.0042%(±0.0027) acerto 56% | stop0: +0.0038%(±0.0016) acerto 19% | stop.1%: +0.0048%(±0.0025) acerto 55% | stop.3%: +0.0044%(±0.0026) acerto 56% |
+ H= 4h N= 2221 nao-volta(gen)=  9.1% nao-volta(rig)=  0.3% | segura: +0.0060%(±0.0055) acerto 53% | stop0: +0.0045%(±0.0025) acerto 9% | stop.1%: +0.0081%(±0.0047) acerto 49% | stop.3%: +0.0066%(±0.0053) acerto 53% |
+ H=12h N= 2221 nao-volta(gen)=  5.7% nao-volta(rig)=  0.2% | segura: +0.0066%(±0.0097) acerto 53% | stop0: +0.0061%(±0.0032) acerto 6% | stop.1%: +0.0173%(±0.0072) acerto 38% | stop.3%: +0.0089%(±0.0090) acerto 52% |
+
+=== GBPUSD_X (16764 velas, 5m) ===
+-- ancora utc12: 105 aberturas, 3 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  102 nao-volta(gen)= 25.5% nao-volta(rig)=  1.0% | segura: -0.0018%(±0.0148) acerto 47% | stop0: +0.0055%(±0.0061) acerto 25% | stop.1%: +0.0004%(±0.0113) acerto 45% | stop.3%: -0.0001%(±0.0129) acerto 47% |
+ H= 4h N=  102 nao-volta(gen)=  9.8% nao-volta(rig)=  1.0% | segura: -0.0246%(±0.0312) acerto 49% | stop0: +0.0002%(±0.0066) acerto 10% | stop.1%: -0.0062%(±0.0185) acerto 45% | stop.3%: -0.0159%(±0.0246) acerto 49% |
+ H=12h N=  102 nao-volta(gen)=  5.9% nao-volta(rig)=  0.0% | segura: -0.0164%(±0.0417) acerto 46% | stop0: +0.0000%(±0.0084) acerto 6% | stop.1%: +0.0050%(±0.0297) acerto 36% | stop.3%: -0.0115%(±0.0388) acerto 46% |
+-- ancora ny12: 105 aberturas, 8 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=   97 nao-volta(gen)= 29.9% nao-volta(rig)=  6.2% | segura: +0.0081%(±0.0099) acerto 62% | stop0: +0.0066%(±0.0068) acerto 27% | stop.1%: +0.0073%(±0.0101) acerto 62% | stop.3%: +0.0081%(±0.0099) acerto 62% |
+ H= 4h N=   97 nao-volta(gen)= 10.3% nao-volta(rig)=  0.0% | segura: +0.0043%(±0.0243) acerto 59% | stop0: -0.0009%(±0.0065) acerto 10% | stop.1%: +0.0051%(±0.0195) acerto 53% | stop.3%: +0.0051%(±0.0237) acerto 59% |
+ H=12h N=   97 nao-volta(gen)=  5.2% nao-volta(rig)=  0.0% | segura: +0.0279%(±0.0432) acerto 59% | stop0: +0.0044%(±0.0145) acerto 5% | stop.1%: +0.0263%(±0.0348) acerto 43% | stop.3%: +0.0301%(±0.0411) acerto 59% |
+-- ancora ctrl: 2482 aberturas, 102 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N= 2373 nao-volta(gen)= 29.1% nao-volta(rig)=  8.8% | segura: +0.0058%(±0.0024) acerto 52% | stop0: +0.0078%(±0.0016) acerto 28% | stop.1%: +0.0062%(±0.0023) acerto 52% | stop.3%: +0.0059%(±0.0024) acerto 52% |
+ H= 4h N= 2380 nao-volta(gen)= 13.4% nao-volta(rig)=  3.8% | segura: +0.0074%(±0.0051) acerto 52% | stop0: +0.0075%(±0.0022) acerto 13% | stop.1%: +0.0082%(±0.0044) acerto 48% | stop.3%: +0.0081%(±0.0049) acerto 52% |
+ H=12h N= 2380 nao-volta(gen)=  8.2% nao-volta(rig)=  2.2% | segura: +0.0093%(±0.0093) acerto 53% | stop0: +0.0115%(±0.0034) acerto 8% | stop.1%: +0.0200%(±0.0070) acerto 39% | stop.3%: +0.0137%(±0.0087) acerto 52% |
+
+=== SOLUSDT (525605 velas, 1m) ===
+-- ancora utc12: 729 aberturas, 405 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  324 nao-volta(gen)=  9.6% nao-volta(rig)=  0.0% | segura: +0.0827%(±0.0572) acerto 56% | stop0: +0.0409%(±0.0256) acerto 10% | stop.1%: +0.0305%(±0.0356) acerto 24% | stop.3%: +0.0388%(±0.0488) acerto 45% |
+ H= 4h N=  324 nao-volta(gen)=  3.4% nao-volta(rig)=  0.0% | segura: +0.0265%(±0.1581) acerto 44% | stop0: +0.0607%(±0.0538) acerto 3% | stop.1%: +0.0589%(±0.0754) acerto 9% | stop.3%: +0.0531%(±0.1014) acerto 22% |
+ H=12h N=  324 nao-volta(gen)=  1.9% nao-volta(rig)=  0.0% | segura: +0.1191%(±0.2175) acerto 54% | stop0: +0.0555%(±0.0600) acerto 2% | stop.1%: +0.0314%(±0.0735) acerto 5% | stop.3%: +0.0454%(±0.1162) acerto 15% |
+-- ancora ny12: 729 aberturas, 345 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  384 nao-volta(gen)=  9.1% nao-volta(rig)=  0.0% | segura: +0.0600%(±0.0600) acerto 51% | stop0: +0.0657%(±0.0348) acerto 9% | stop.1%: +0.0663%(±0.0423) acerto 25% | stop.3%: +0.0756%(±0.0508) acerto 45% |
+ H= 4h N=  384 nao-volta(gen)=  3.9% nao-volta(rig)=  0.0% | segura: -0.0269%(±0.1196) acerto 49% | stop0: +0.0666%(±0.0502) acerto 4% | stop.1%: +0.0364%(±0.0594) acerto 10% | stop.3%: -0.0022%(±0.0723) acerto 25% |
+ H=12h N=  384 nao-volta(gen)=  2.3% nao-volta(rig)=  0.0% | segura: +0.0176%(±0.2195) acerto 51% | stop0: +0.0520%(±0.0467) acerto 2% | stop.1%: +0.0390%(±0.0708) acerto 6% | stop.3%: +0.0226%(±0.1024) acerto 15% |
+-- ancora utc24: 365 aberturas, 205 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  160 nao-volta(gen)= 12.5% nao-volta(rig)=  0.0% | segura: +0.0900%(±0.0888) acerto 54% | stop0: +0.0525%(±0.0427) acerto 12% | stop.1%: +0.0245%(±0.0530) acerto 24% | stop.3%: +0.0387%(±0.0763) acerto 45% |
+ H= 4h N=  160 nao-volta(gen)=  4.4% nao-volta(rig)=  0.0% | segura: -0.0852%(±0.2063) acerto 43% | stop0: +0.0667%(±0.0674) acerto 4% | stop.1%: +0.0732%(±0.1129) acerto 9% | stop.3%: +0.0337%(±0.1395) acerto 23% |
+ H=12h N=  160 nao-volta(gen)=  2.5% nao-volta(rig)=  0.0% | segura: +0.1825%(±0.2649) acerto 53% | stop0: +0.0709%(±0.0800) acerto 2% | stop.1%: +0.0522%(±0.1033) acerto 6% | stop.3%: +0.0203%(±0.1360) acerto 17% |
+-- ancora nyopen: 260 aberturas, 203 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=   57 nao-volta(gen)= 21.1% nao-volta(rig)=  0.0% | segura: +0.2598%(±0.2566) acerto 68% | stop0: +0.2217%(±0.1695) acerto 21% | stop.1%: +0.2255%(±0.1826) acerto 30% | stop.3%: +0.1372%(±0.1987) acerto 39% |
+ H= 4h N=   57 nao-volta(gen)= 10.5% nao-volta(rig)=  0.0% | segura: +0.1354%(±0.4586) acerto 54% | stop0: +0.1498%(±0.1396) acerto 11% | stop.1%: +0.1355%(±0.1597) acerto 16% | stop.3%: +0.0385%(±0.1894) acerto 21% |
+ H=12h N=   57 nao-volta(gen)=  7.0% nao-volta(rig)=  0.0% | segura: +0.1711%(±0.7209) acerto 58% | stop0: +0.1654%(±0.1881) acerto 7% | stop.1%: +0.1425%(±0.2239) acerto 9% | stop.3%: +0.0140%(±0.2452) acerto 12% |
+-- ancora ctrl: 17496 aberturas, 9788 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N= 7708 nao-volta(gen)= 11.2% nao-volta(rig)=  0.0% | segura: +0.0643%(±0.0129) acerto 55% | stop0: +0.0628%(±0.0063) acerto 11% | stop.1%: +0.0625%(±0.0084) acerto 27% | stop.3%: +0.0646%(±0.0105) acerto 47% |
+ H= 4h N= 7708 nao-volta(gen)=  5.3% nao-volta(rig)=  0.0% | segura: +0.0568%(±0.0273) acerto 52% | stop0: +0.0662%(±0.0093) acerto 5% | stop.1%: +0.0718%(±0.0132) acerto 13% | stop.3%: +0.0642%(±0.0173) acerto 29% |
+ H=12h N= 7708 nao-volta(gen)=  3.1% nao-volta(rig)=  0.0% | segura: +0.0441%(±0.0487) acerto 51% | stop0: +0.0655%(±0.0116) acerto 3% | stop.1%: +0.0603%(±0.0164) acerto 7% | stop.3%: +0.0542%(±0.0234) acerto 16% |
+
+=== USDJPY_X (16694 velas, 5m) ===
+-- ancora utc12: 105 aberturas, 54 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=   51 nao-volta(gen)= 21.6% nao-volta(rig)=  0.0% | segura: +0.0041%(±0.0248) acerto 59% | stop0: +0.0103%(±0.0142) acerto 22% | stop.1%: +0.0095%(±0.0203) acerto 57% | stop.3%: +0.0039%(±0.0249) acerto 59% |
+ H= 4h N=   51 nao-volta(gen)=  7.8% nao-volta(rig)=  0.0% | segura: -0.0284%(±0.0520) acerto 39% | stop0: +0.0069%(±0.0177) acerto 8% | stop.1%: -0.0128%(±0.0385) acerto 31% | stop.3%: -0.0270%(±0.0507) acerto 39% |
+ H=12h N=   51 nao-volta(gen)=  5.9% nao-volta(rig)=  0.0% | segura: -0.0092%(±0.0648) acerto 51% | stop0: +0.0039%(±0.0154) acerto 6% | stop.1%: -0.0081%(±0.0411) acerto 31% | stop.3%: -0.0229%(±0.0593) acerto 49% |
+-- ancora ny12: 97 aberturas, 32 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=   65 nao-volta(gen)= 18.5% nao-volta(rig)=  0.0% | segura: +0.0119%(±0.0113) acerto 54% | stop0: +0.0042%(±0.0096) acerto 18% | stop.1%: +0.0111%(±0.0118) acerto 54% | stop.3%: +0.0119%(±0.0113) acerto 54% |
+ H= 4h N=   65 nao-volta(gen)=  6.2% nao-volta(rig)=  0.0% | segura: +0.0235%(±0.0335) acerto 55% | stop0: -0.0006%(±0.0099) acerto 6% | stop.1%: +0.0133%(±0.0299) acerto 48% | stop.3%: +0.0219%(±0.0329) acerto 55% |
+ H=12h N=   65 nao-volta(gen)=  4.6% nao-volta(rig)=  0.0% | segura: +0.1146%(±0.0763) acerto 63% | stop0: -0.0010%(±0.0112) acerto 5% | stop.1%: +0.0250%(±0.0527) acerto 35% | stop.3%: +0.1071%(±0.0731) acerto 60% |
+-- ancora ctrl: 2474 aberturas, 950 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N= 1523 nao-volta(gen)= 20.7% nao-volta(rig)=  0.2% | segura: +0.0089%(±0.0040) acerto 56% | stop0: +0.0080%(±0.0024) acerto 20% | stop.1%: +0.0101%(±0.0035) acerto 55% | stop.3%: +0.0094%(±0.0038) acerto 56% |
+ H= 4h N= 1524 nao-volta(gen)=  8.5% nao-volta(rig)=  0.1% | segura: +0.0020%(±0.0086) acerto 51% | stop0: +0.0064%(±0.0037) acerto 9% | stop.1%: +0.0062%(±0.0066) acerto 44% | stop.3%: +0.0025%(±0.0081) acerto 51% |
+ H=12h N= 1524 nao-volta(gen)=  5.0% nao-volta(rig)=  0.0% | segura: +0.0145%(±0.0163) acerto 51% | stop0: +0.0107%(±0.0060) acerto 5% | stop.1%: +0.0209%(±0.0115) acerto 32% | stop.3%: +0.0178%(±0.0144) acerto 49% |
+
+=== XRPUSDT (525605 velas, 1m) ===
+-- ancora utc12: 729 aberturas, 334 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  395 nao-volta(gen)= 12.4% nao-volta(rig)=  0.0% | segura: +0.0429%(±0.0539) acerto 51% | stop0: +0.0688%(±0.0298) acerto 12% | stop.1%: +0.0522%(±0.0357) acerto 27% | stop.3%: +0.0265%(±0.0431) acerto 43% |
+ H= 4h N=  395 nao-volta(gen)=  5.6% nao-volta(rig)=  0.0% | segura: +0.1093%(±0.1404) acerto 52% | stop0: +0.0774%(±0.0459) acerto 6% | stop.1%: +0.0843%(±0.0649) acerto 13% | stop.3%: +0.0525%(±0.0790) acerto 26% |
+ H=12h N=  395 nao-volta(gen)=  3.8% nao-volta(rig)=  0.0% | segura: +0.2212%(±0.1948) acerto 55% | stop0: +0.0774%(±0.0569) acerto 4% | stop.1%: +0.0899%(±0.0856) acerto 9% | stop.3%: +0.0532%(±0.1012) acerto 18% |
+-- ancora ny12: 729 aberturas, 253 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  476 nao-volta(gen)= 11.1% nao-volta(rig)=  0.0% | segura: +0.0431%(±0.0433) acerto 54% | stop0: +0.0470%(±0.0204) acerto 11% | stop.1%: +0.0601%(±0.0290) acerto 32% | stop.3%: +0.0500%(±0.0365) acerto 49% |
+ H= 4h N=  476 nao-volta(gen)=  4.8% nao-volta(rig)=  0.0% | segura: +0.0169%(±0.1032) acerto 50% | stop0: +0.0389%(±0.0253) acerto 5% | stop.1%: +0.0375%(±0.0424) acerto 13% | stop.3%: +0.0342%(±0.0598) acerto 30% |
+ H=12h N=  476 nao-volta(gen)=  2.9% nao-volta(rig)=  0.0% | segura: +0.1214%(±0.1905) acerto 51% | stop0: +0.0566%(±0.0445) acerto 3% | stop.1%: +0.0781%(±0.0657) acerto 8% | stop.3%: +0.0887%(±0.0912) acerto 19% |
+-- ancora utc24: 365 aberturas, 169 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=  196 nao-volta(gen)= 14.8% nao-volta(rig)=  0.0% | segura: +0.0935%(±0.0719) acerto 52% | stop0: +0.0937%(±0.0524) acerto 15% | stop.1%: +0.0664%(±0.0570) acerto 29% | stop.3%: +0.0462%(±0.0670) acerto 44% |
+ H= 4h N=  196 nao-volta(gen)=  6.1% nao-volta(rig)=  0.0% | segura: +0.0223%(±0.1506) acerto 51% | stop0: +0.0487%(±0.0364) acerto 6% | stop.1%: +0.0307%(±0.0532) acerto 15% | stop.3%: -0.0306%(±0.0750) acerto 27% |
+ H=12h N=  196 nao-volta(gen)=  3.6% nao-volta(rig)=  0.0% | segura: +0.2595%(±0.2387) acerto 56% | stop0: +0.0545%(±0.0493) acerto 4% | stop.1%: +0.0402%(±0.0676) acerto 10% | stop.3%: -0.0455%(±0.0923) acerto 17% |
+-- ancora nyopen: 260 aberturas, 206 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N=   54 nao-volta(gen)= 11.1% nao-volta(rig)=  0.0% | segura: +0.1965%(±0.2136) acerto 54% | stop0: +0.1185%(±0.1314) acerto 11% | stop.1%: +0.0954%(±0.1431) acerto 22% | stop.3%: +0.0100%(±0.1603) acerto 31% |
+ H= 4h N=   54 nao-volta(gen)=  3.7% nao-volta(rig)=  0.0% | segura: +0.1341%(±0.3491) acerto 56% | stop0: +0.0448%(±0.0934) acerto 4% | stop.1%: +0.0203%(±0.1218) acerto 9% | stop.3%: -0.1174%(±0.1410) acerto 15% |
+ H=12h N=   54 nao-volta(gen)=  3.7% nao-volta(rig)=  0.0% | segura: -0.0483%(±0.6071) acerto 61% | stop0: +0.0402%(±0.0745) acerto 4% | stop.1%: +0.0288%(±0.1279) acerto 7% | stop.3%: -0.1444%(±0.1426) acerto 9% |
+-- ancora ctrl: 17496 aberturas, 7727 ambiguas (sobe e desce 0,01% na mesma vela)
+ H= 1h N= 9769 nao-volta(gen)= 12.0% nao-volta(rig)=  0.1% | segura: +0.0477%(±0.0107) acerto 54% | stop0: +0.0590%(±0.0052) acerto 12% | stop.1%: +0.0546%(±0.0067) acerto 29% | stop.3%: +0.0525%(±0.0086) acerto 48% |
+ H= 4h N= 9769 nao-volta(gen)=  5.6% nao-volta(rig)=  0.1% | segura: +0.0634%(±0.0223) acerto 53% | stop0: +0.0577%(±0.0072) acerto 6% | stop.1%: +0.0544%(±0.0102) acerto 14% | stop.3%: +0.0557%(±0.0139) acerto 31% |
+ H=12h N= 9769 nao-volta(gen)=  3.2% nao-volta(rig)=  0.0% | segura: +0.0775%(±0.0404) acerto 52% | stop0: +0.0592%(±0.0095) acerto 3% | stop.1%: +0.0539%(±0.0135) acerto 8% | stop.3%: +0.0598%(±0.0197) acerto 19% |
