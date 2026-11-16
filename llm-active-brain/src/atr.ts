@@ -645,6 +645,20 @@ function isVolumeEveningWindow(now: Date = new Date()): boolean {
   return nowBrasiliaMin >= VOLUME_EVENING_START_BRASILIA_MIN && nowBrasiliaMin < VOLUME_EVENING_END_BRASILIA_MIN;
 }
 
+// 2026-11-16 (pedido do Cleber): "retirar o peso de validacao da LLM para
+// volume na abertura dos mercados -- toda vez que os mercados abrirem, mantem
+// ate 23h sem validacao por volume". Janela diaria em Brasilia, do inicio
+// (default 04h = abertura de Londres, 07:00 UTC) ate 23:00. Dentro dela o
+// volume deixa de contar como fator de confluencia nos gates de open_position
+// (tools.ts) e o LLM e avisado pra nao usa-lo. Fim de semana ja ignora volume
+// por isWeekendMode(). Ajustavel: MT5_VOLUME_FREE_START_HOUR_BRT /
+// MT5_VOLUME_FREE_END_HOUR_BRT. Fora da janela (23h-04h) volume vale como antes.
+export function isVolumeFreeWindow(now: Date = new Date()): boolean {
+  const nowUtcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const nowBrasiliaMin = (nowUtcMin - BRASILIA_UTC_OFFSET_HOURS * 60 + 24 * 60) % (24 * 60);
+  return nowBrasiliaMin >= config.mt5VolumeFreeStartHourBrt * 60 && nowBrasiliaMin < config.mt5VolumeFreeEndHourBrt * 60;
+}
+
 /**
  * 🔴 2026-08-29 (mesmo achado do Cleber): fallback quando o candle (e o
  * volume real dele) não vem -- usa aceleração de momentum por tick real

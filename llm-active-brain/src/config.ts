@@ -870,6 +870,10 @@ export const config = {
   // .env agora. Sem validacao estatistica ainda -- so infraestrutura de
   // ajuste, valor so muda se o Cleber setar explicitamente no .env.
   mt5VolumeElevatedRatio: Number(process.env.MT5_VOLUME_ELEVATED_RATIO ?? 1.05),
+  // 2026-11-16 (pedido do Cleber): janela diaria (Brasilia) sem validacao por
+  // volume: da abertura dos mercados (04h, Londres) ate 23h. Ver isVolumeFreeWindow (atr.ts).
+  mt5VolumeFreeStartHourBrt: Number(process.env.MT5_VOLUME_FREE_START_HOUR_BRT ?? 4),
+  mt5VolumeFreeEndHourBrt: Number(process.env.MT5_VOLUME_FREE_END_HOUR_BRT ?? 23),
   // 🔴 2026-08-29 (mesma otimização): circuito de perda consecutiva por
   // símbolo+lado. Achado real: o agente reabriu SHORT em SOLUSD/XETUSD/BTCUSD
   // repetidamente (a cada poucos minutos) mesmo depois de perder no MESMO

@@ -6,7 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getTrialAbortReason, getEntriesCountLast24h, getEntriesTodayBySymbol, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
-import { getPmiStatus, getPmiBreakout, getPmiCorridor, getDeepCandles, getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow } from "./atr.js";
+import { getPmiStatus, getPmiBreakout, getPmiCorridor, getDeepCandles, getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow, isVolumeFreeWindow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -1097,6 +1097,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         trend,
         trendLongTerm,
         volume,
+        ...(isVolumeFreeWindow() ? { volumeIgnorado: "Janela de abertura dos mercados ate 23h Brasilia: volume NAO e fator de decisao (nem confirmacao exigida, nem motivo de cautela). Ignore volume/volumeLabel e julgue por tendencia, MACD, Estocastico, candle e S/R." } : {}),
         extension,
         supportResistance,
         macd,
@@ -1892,7 +1893,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // isWeekendMode(). Nao afeta dia util (continua usando volume real,
       // intocado) nem remove os outros fatores reais (MACD, Estocastico,
       // padrao de candle) que continuam valendo nos dois regimes.
-      const volumeForConfluence = isWeekendMode() ? null : volume;
+      const volumeForConfluence = isWeekendMode() || isVolumeFreeWindow() ? null : volume;
       const trend5mFinal = openPositionTimeframe === "5m" ? trend : trend5mForDirection;
       const trend15mFinal = openPositionTimeframe === "15m" ? trend : trend15mForDirection;
       const immediateMomentum5mFinal = openPositionTimeframe === "5m" ? immediateMomentumForGate : immediateMomentum5mForDirection;
