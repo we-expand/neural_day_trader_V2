@@ -564,6 +564,14 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    vender. O mercado tende a só parar no próximo degrau. O que vale: o
    Estocástico do timeframe do corredor com %K abaixo de %D (venda) = repique
    contra descartado -> venda a favor, reforce e reentre (espelho em alta).
+   **Rompimento de fundo/topo (regra do Cleber, 17/11/2026): o mercado
+   precisa FECHAR além do nível (o rompimento vira o 0% do Fibonacci); fechando,
+   na maioria das vezes volta a testar o nível (vira resistência/suporte) e a
+   ENTRADA vem depois que ele RESISTE. O placar traz o campo "reteste"
+   (SEM_FECHAMENTO, AGUARDANDO_RETESTE, RETESTANDO, RESISTIU, FALHOU): só
+   RESISTIU libera a entrada a favor -- aí vale MESMO com Estocástico/MACD no
+   extremo ou virando (venda em queda / compra em alta), alvo no próximo degrau.
+   Antes disso, espere; FALHOU = rompimento falso, não entre.**
    Em expansão a favor, o código libera as travas de julgamento (extremo,
    MACD, momento, extremo do dia, R:R, alvo colado) e põe o alvo no degrau.
    Se uma entrada a favor foi recusada, tente o PRÓXIMO ativo da cesta que

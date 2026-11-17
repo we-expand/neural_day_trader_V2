@@ -46,6 +46,14 @@ export interface FibCorridor {
   emExpansao: boolean;
   /** todos os degraus foram rompidos: redesenhar num tempo maior (ou refazer a perna) */
   redesenhar: boolean;
+  /**
+   * Ciclo do rompimento (regra do Cleber, 17/11/2026): o mercado precisa FECHAR alem do fundo/topo; fechando, na maioria
+   * das vezes volta a testar o nivel rompido (vira resistencia/suporte) e a ENTRADA vem depois que ele RESISTE.
+   * SEM_FECHAMENTO: nenhum candle fechado alem do nivel ainda | AGUARDANDO_RETESTE: fechou alem, ainda nao voltou ao nivel |
+   * RETESTANDO: o candle atual esta testando o nivel | RESISTIU: testou e um candle fechou de volta alem do nivel (ENTRADA) |
+   * FALHOU: testou e fechou de volta dentro (rompimento falso).
+   */
+  reteste?: "SEM_FECHAMENTO" | "AGUARDANDO_RETESTE" | "RETESTANDO" | "RESISTIU" | "FALHOU";
 }
 
 export interface FibOptions {
@@ -124,6 +132,26 @@ export function computeFibCorridor(candles: FibCandle[], opts: FibOptions): FibC
     rompido: e.d === "BAIXA" ? price < l.price : price > l.price,
   }));
   const proximoDegrau = degraus.find((d) => !d.rompido) ?? null;
+  // ciclo fechamento -> reteste -> resistencia (ultima vela = em formacao; so as anteriores "fecharam")
+  const baixaE = e.d === "BAIXA";
+  const alem = (v: number) => (baixaE ? v < e.pontoB : v > e.pontoB);
+  const tol = 0.1 * e.perna;
+  let reteste: NonNullable<FibCorridor["reteste"]> = "SEM_FECHAMENTO";
+  const ult = c.length - 1;
+  let k = -1;
+  for (let i = e.ib + 1; i < ult; i++) if (alem(c[i].close)) { k = i; break; }
+  if (k >= 0) {
+    reteste = "AGUARDANDO_RETESTE";
+    let t = -1;
+    for (let i = k + 1; i <= ult; i++) {
+      if (baixaE ? c[i].high >= e.pontoB - tol : c[i].low <= e.pontoB + tol) { t = i; break; }
+    }
+    if (t >= 0) {
+      let resistiu = false;
+      for (let j = t; j < ult; j++) if (alem(c[j].close)) { resistiu = true; break; }
+      reteste = resistiu ? "RESISTIU" : t === ult ? "RETESTANDO" : "FALHOU";
+    }
+  }
   return {
     tf: opts.tf,
     direcao: e.d,
@@ -135,6 +163,7 @@ export function computeFibCorridor(candles: FibCandle[], opts: FibOptions): FibC
     distanciaProximoPct: proximoDegrau ? (Math.abs(price - proximoDegrau.price) / price) * 100 : null,
     emExpansao: true,
     redesenhar: proximoDegrau === null,
+    reteste,
   };
 }
 

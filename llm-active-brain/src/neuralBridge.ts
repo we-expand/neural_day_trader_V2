@@ -491,7 +491,7 @@ export async function getUserTradingConfig(userId: string, fullBasket: string[])
     const value: UserTradingConfig = {
       riskPerTradePct: typeof raw.riskPerTrade === "number" && raw.riskPerTrade > 0 ? raw.riskPerTrade : null,
       allocatedCapitalUsd: typeof raw.allocatedCapital === "number" && raw.allocatedCapital > 0 ? raw.allocatedCapital : null,
-      dailyLossLimitPct: typeof raw.dailyLossLimit === "number" && raw.dailyLossLimit > 0 ? raw.dailyLossLimit : null,
+      dailyLossLimitPct: process.env.DAILY_LOSS_LIMIT_DISABLED === "true" ? null : (typeof raw.dailyLossLimit === "number" && raw.dailyLossLimit > 0 ? raw.dailyLossLimit : null),
       direction: raw.direction === "LONG" || raw.direction === "SHORT" ? raw.direction : "AUTO",
       // cesta do usuario intersectada com a cesta real vazia (nenhum ativo em comum) =
       // sem filtro util, cai pra cesta inteira em vez de travar o motor sem nenhum ativo pra operar.

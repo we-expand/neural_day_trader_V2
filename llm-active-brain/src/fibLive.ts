@@ -43,9 +43,10 @@ export async function getFibState(symbol: string): Promise<Record<string, unknow
       proximoDegrau: p.proximoDegrau ? { ratio: p.proximoDegrau.ratio, price: p.proximoDegrau.price, distanciaPct: Number(p.distanciaProximoPct!.toFixed(3)) } : null,
       degraus: p.degraus.map((d) => ({ ratio: d.ratio, price: d.price, rompido: d.rompido })),
       redesenhar: p.redesenhar,
+      reteste: p.reteste,
       leitura:
         `EXPANSAO DE ${p.direcao} no ${p.tf}. Aqui o Estocastico fica colado no extremo e o MACD nao da cruzamento limpo: NAO espere cruzamento nem MACD pra entrar a favor (${baixa ? "SHORT" : "LONG"}). ` +
-        `A entrada a favor E o sinal; o alvo vai no proximo degrau e a invalidacao e o preco voltar ao 0. ${describeFibCorridor(p)}`,
+        `A entrada a favor E o sinal, MAS so depois do ciclo do rompimento: fechar alem do nivel, voltar a testa-lo e RESISTIR (estado do reteste agora: ${p.reteste}). O alvo vai no proximo degrau e a invalidacao e o preco voltar ao 0. ${describeFibCorridor(p)}`,
     };
   }
   for (const [tf, candles] of [["15m", await getDeepCandles(symbol, "15m")], ["1H", await getDeepCandles(symbol, "1H")]] as const) {

@@ -1228,8 +1228,15 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
               ((cor.direcao === "BAIXA" && relSide === "SHORT") || (cor.direcao === "ALTA" && relSide === "LONG"));
             if (cor && aFavor) {
               const stRel = await getSlowStochastic(relSymbol, cor.tf as import("./atr.js").SupportedTimeframe);
-              const validado = !!stRel && (relSide === "SHORT" ? stRel.k <= stRel.d : stRel.k >= stRel.d);
-              if (validado) {
+              // 2026-11-17 (regra do Cleber): ROMPEU o fundo/topo = o rompimento vira o 0% do Fibonacci e a expansao comeca;
+              // a entrada a favor sai MESMO com estocastico/MACD esticados ou virando. Rollback (volta a exigir o estocastico
+              // do corredor validando): MT5_EXPANSION_REQUIRE_STOCH=true.
+              const validado = process.env.MT5_EXPANSION_REQUIRE_STOCH !== "true" || (!!stRel && (relSide === "SHORT" ? stRel.k <= stRel.d : stRel.k >= stRel.d));
+              // Rompimento so vale depois do ciclo: fechou alem do nivel + retestou + RESISTIU (Cleber, 17/11/2026).
+              // Rollback: MT5_EXPANSION_REQUIRE_RETEST=false.
+              const retesteOk = process.env.MT5_EXPANSION_REQUIRE_RETEST === "false" || cor.reteste === "RESISTIU";
+              if (!retesteOk) console.log(`[EXPANSAO-LIBERA] ${relSymbol} ${relSide}: corredor ${cor.tf} a favor, mas o rompimento ainda nao cumpriu o ciclo (reteste: ${cor.reteste}) -- travas seguem normais`);
+              if (validado && retesteOk) {
                 expansionReleaseActive = true;
                 console.log(`[EXPANSAO-LIBERA] ${relSymbol} ${relSide}: corredor ${cor.tf} a favor (proximo degrau ${(cor.proximoDegrau!.ratio * 100).toFixed(1)}% em ${cor.proximoDegrau!.price.toFixed(2)}), estocastico ${cor.tf} validando (K ${stRel?.k} / D ${stRel?.d}) -- travas de julgamento liberadas`);
               } else {
