@@ -5,7 +5,7 @@
 // de 02/09). Esta trava e MECANICA e le 15m + 1H + 4H (estocastico 5,3,3 e MACD) antes de qualquer entrada.
 //
 // Funcao pura (sem I/O) de proposito: testavel com leituras fabricadas. Quem busca os dados e tools.ts.
-import type { MacdResult, MovingAverageDistance, SlowStochasticResult } from "./atr.js";
+import type { MacdResult, MovingAverageDistance, MovingAverageState, SlowStochasticResult } from "./atr.js";
 
 export type MtfSide = "LONG" | "SHORT";
 export type MtfTimeframe = "5m" | "15m" | "1H" | "4H";
@@ -15,6 +15,8 @@ export interface MtfReadings {
   macd: Record<MtfTimeframe, MacdResult | null>;
   /** Posicao do preco frente as medias (EMA9/SMA20) -- so 15m e 1H entram na regra. */
   ma?: Partial<Record<MtfTimeframe, MovingAverageDistance | null>>;
+  /** Inclinacao das medias e cruzamento EMA9 x SMA20 (5m, 15m, 1H). */
+  maState?: Partial<Record<MtfTimeframe, MovingAverageState | null>>;
 }
 
 export interface MtfVerdict {
@@ -59,13 +61,26 @@ function maStackOpposes(m: MovingAverageDistance | null | undefined, side: MtfSi
   return null;
 }
 
+/** Medias VIRADAS contra o lado (as duas inclinadas contra) ou CRUZAMENTO recente da EMA9 x SMA20 contra o lado. */
+function maTrendOpposes(m: MovingAverageState | null | undefined, side: MtfSide): string | null {
+  if (!m) return null;
+  const contraSlope = side === "LONG" ? "BAIXA" : "ALTA";
+  const contraCross = side === "LONG" ? "CRUZOU_PARA_BAIXO" : "CRUZOU_PARA_CIMA";
+  if (m.cross && m.cross.direction === contraCross) {
+    return `EMA9 ${contraCross === "CRUZOU_PARA_BAIXO" ? "cruzou para baixo" : "cruzou para cima"} da SMA20 ha ${m.cross.candlesAgo} vela(s)`;
+  }
+  if (m.ema9Slope === contraSlope && m.sma20Slope === contraSlope) return `EMA9 e SMA20 viradas para ${contraSlope === "BAIXA" ? "baixo" : "cima"}`;
+  return null;
+}
+
 /**
  * Regras (o tempo maior manda, METODO_OPERACIONAL secao 2):
  *  1. Estocastico da 1H ou da 4H em zona/cruzamento contra o lado  -> BLOQUEIA (qualquer setup, inclusive REVERSAO:
  *     reversao de LONG so vale depois de SOBREVENDIDO, nunca com a 1H ja SOBRECOMPRADA).
  *  2. Momento do MACD da 1H contra o lado -> BLOQUEIA (exceto REVERSAO, que e contra a 1H por definicao).
  *  3. Sem leitura da 1H (estocastico ou MACD) -> BLOQUEIA: nao se opera "no escuro" sobre o tempo que decide o lado.
- *  2b. Preco do lado errado da EMA9 E da SMA20 na 1H -> BLOQUEIA (exceto REVERSAO).
+ *  2b. Medias da 1H contra o lado -> BLOQUEIA (exceto REVERSAO): preco do lado errado da EMA9 E da SMA20, OU as duas viradas
+ *      contra, OU cruzamento EMA9 x SMA20 contra nas ultimas 3 velas.
  *  4. Senao, conta os avisos de TIMING (5m e 15m: estocastico, MACD, medias) e do MACD da 4H: 2 ou mais contra -> BLOQUEIA.
  *     A 1H da a direcao; 5m/15m dao o instante da entrada e tem que concordar. 1 aviso isolado nao bloqueia, fica no summary.
  */
@@ -80,7 +95,9 @@ export function evaluateMtfConfluence(side: MtfSide, readings: MtfReadings, opts
       const mc = m ? `MACD ${m.label}${m.turning ? " " + m.turning : ""}${m.crossing ? " " + m.crossing : ""}` : "MACD n/d";
       const a = readings.ma?.[tf];
       const mm = a && a.distancePctFromEma9 != null && a.distancePctFromSma20 != null ? `; medias ${a.distancePctFromEma9.toFixed(2)}%/${a.distancePctFromSma20.toFixed(2)}% (EMA9/SMA20)` : "";
-      return `${tf}: ${st}; ${mc}${mm}`;
+      const q = readings.maState?.[tf];
+      const mq = q ? `; EMA9/SMA20 ${q.order === "ALTA" ? "ordem alta" : "ordem baixa"}, EMA9 ${q.ema9Slope}, SMA20 ${q.sma20Slope}${q.cross ? `, ${q.cross.direction} (${q.cross.candlesAgo} vela(s))` : ""}` : "";
+      return `${tf}: ${st}; ${mc}${mm}${mq}`;
     })
     .join(" | ");
 
@@ -123,6 +140,13 @@ export function evaluateMtfConfluence(side: MtfSide, readings: MtfReadings, opts
       opposing.push(`1H medias contra: ${o}`);
     }
   }
+  if (!opts.isReversal) {
+    const o = maTrendOpposes(readings.maState?.["1H"], side);
+    if (o) {
+      hard.push(`1H medias: ${o}`);
+      opposing.push(`1H medias: ${o}`);
+    }
+  }
   // Regra 4: timing (5m e 15m), medias do 15m e MACD 4H
   const soft: string[] = [];
   const s5 = stoch["5m"] ? stochOpposes(stoch["5m"], side) : null;
@@ -136,6 +160,10 @@ export function evaluateMtfConfluence(side: MtfSide, readings: MtfReadings, opts
     if (m15) soft.push(`15m ${m15}`);
     const ma15 = maStackOpposes(readings.ma?.["15m"], side);
     if (ma15) soft.push(`15m medias contra: ${ma15}`);
+    for (const tf of ["5m", "15m"] as const) {
+      const t = maTrendOpposes(readings.maState?.[tf], side);
+      if (t) soft.push(`${tf} medias: ${t}`);
+    }
     const m4 = macd["4H"] ? macdMomentumOpposes(macd["4H"], side) : null;
     if (m4) soft.push(`4H ${m4}`);
   }

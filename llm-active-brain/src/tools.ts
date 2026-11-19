@@ -7,7 +7,7 @@ import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./bro
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getTrialAbortReason, getEntriesCountLast24h, getEntriesTodayBySymbol, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
 import { evaluateMtfConfluence } from "./mtfConfluence.js";
-import { getPmiStatus, getPmiBreakout, getPmiCorridor, getDeepCandles, getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow, isVolumeFreeWindow } from "./atr.js";
+import { getPmiStatus, getPmiBreakout, getPmiCorridor, getDeepCandles, getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getMovingAverageState, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow, isVolumeFreeWindow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
 import { MT5_ASSET_BASKET, LOT_SIZE, MIN_LOTS, isSymbolTradable, getCorrelatedGroup, isWeekendMode } from "./assetBasket.js";
@@ -2284,7 +2284,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // (15m + 1H + 4H, estocastico e MACD) como trava MECANICA. Volta sem passar por gateResult de proposito: nao sai nem no
       // teste so-LLM nem na expansao (protecao contra entrada contra o tempo maior). Rollback: MT5_MTF_CONFLUENCE_GATE=false.
       if (process.env.MT5_MTF_CONFLUENCE_GATE !== "false" && !isFomcBtcPlay && !isPmiReacao) {
-        const [s5, s15, s1h, s4h, m5, m15, m1h, m4h, ma15, ma1h] = await Promise.all([
+        const [s5, s15, s1h, s4h, m5, m15, m1h, m4h, ma15, ma1h, mst5, mst15, mst1h] = await Promise.all([
           getSlowStochastic(symbol, "5m").catch(() => null),
           getSlowStochastic(symbol, "15m").catch(() => null),
           getSlowStochastic(symbol, "1H").catch(() => null),
@@ -2295,10 +2295,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           getMacd(symbol, "4H").catch(() => null),
           getMovingAverageDistance(symbol, "15m").catch(() => null),
           getMovingAverageDistance(symbol, "1H").catch(() => null),
+          getMovingAverageState(symbol, "5m").catch(() => null),
+          getMovingAverageState(symbol, "15m").catch(() => null),
+          getMovingAverageState(symbol, "1H").catch(() => null),
         ]);
         const mtf = evaluateMtfConfluence(
           side as "LONG" | "SHORT",
-          { stoch: { "5m": s5, "15m": s15, "1H": s1h, "4H": s4h }, macd: { "5m": m5, "15m": m15, "1H": m1h, "4H": m4h }, ma: { "15m": ma15, "1H": ma1h } },
+          { stoch: { "5m": s5, "15m": s15, "1H": s1h, "4H": s4h }, macd: { "5m": m5, "15m": m15, "1H": m1h, "4H": m4h }, ma: { "15m": ma15, "1H": ma1h }, maState: { "5m": mst5, "15m": mst15, "1H": mst1h } },
           { isReversal: setupType === "REVERSAO" }
         );
         console.log(`[MTF-CONFLUENCIA] ${symbol} ${side} ${mtf.blocked ? "BLOQUEADO" : "ok"} -- ${mtf.summary}${mtf.opposing.length ? ` || contra: ${mtf.opposing.join("; ")}` : ""}`);

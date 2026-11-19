@@ -2022,3 +2022,50 @@ export async function getHmmMarketRegime(symbol: string, timeframe: SupportedTim
   if (!candles) return null;
   return classifyRegimeHmm(candles);
 }
+
+// 2026-11-18 (Cleber): "trabalhamos com a EMA9 e a SMA20: ou as medias estao viradas pra cima ou pra baixo; e o CRUZAMENTO delas
+// e muito importante". getMovingAverageDistance so da a distancia do preco; aqui sai a INCLINACAO de cada media, a ordem EMA9 x SMA20 e
+// o cruzamento recente (ate MA_CROSS_LOOKBACK velas atras), por timeframe. Nunca fabrica: sem candle suficiente, null.
+export interface MovingAverageState {
+  ema9: number;
+  sma20: number;
+  /** Inclinacao em MA_SLOPE_LOOKBACK velas; FLAT = variacao menor que MA_SLOPE_FLAT_RATIO do preco. */
+  ema9Slope: "ALTA" | "BAIXA" | "FLAT";
+  sma20Slope: "ALTA" | "BAIXA" | "FLAT";
+  /** EMA9 acima da SMA20 = ordem de alta; abaixo = baixa. */
+  order: "ALTA" | "BAIXA";
+  /** Cruzamento EMA9 x SMA20 dentro das ultimas MA_CROSS_LOOKBACK velas fechadas (null = nenhum). */
+  cross: { direction: "CRUZOU_PARA_CIMA" | "CRUZOU_PARA_BAIXO"; candlesAgo: number } | null;
+}
+const MA_SLOPE_LOOKBACK = 3;
+const MA_SLOPE_FLAT_RATIO = 0.00005;
+const MA_CROSS_LOOKBACK = 3;
+
+export async function getMovingAverageState(symbol: string, timeframe: SupportedTimeframe = "5m"): Promise<MovingAverageState | null> {
+  const candles = await fetchRecentCandles(symbol, timeframe);
+  if (!candles || candles.length < SMA20_PERIOD + MA_SLOPE_LOOKBACK + 1) return null;
+  const closes = candles.map((c) => c.close);
+  if (closes.some((v) => !Number.isFinite(v))) return null;
+  const ema = calculateEmaSeries(closes, EMA9_PERIOD);
+  const sma = calculateSmaSeries(closes, SMA20_PERIOD);
+  if (!ema) return null;
+  const n = closes.length - 1;
+  const price = closes[n];
+  const flat = price * MA_SLOPE_FLAT_RATIO;
+  const slope = (s: number[]): "ALTA" | "BAIXA" | "FLAT" => {
+    const d = s[n] - s[n - MA_SLOPE_LOOKBACK];
+    if (!Number.isFinite(d)) return "FLAT";
+    return Math.abs(d) <= flat ? "FLAT" : d > 0 ? "ALTA" : "BAIXA";
+  };
+  if (!Number.isFinite(ema[n]) || !Number.isFinite(sma[n])) return null;
+  let cross: MovingAverageState["cross"] = null;
+  for (let ago = 0; ago < MA_CROSS_LOOKBACK; ago++) {
+    const i = n - ago;
+    const diffNow = ema[i] - sma[i];
+    const diffPrev = ema[i - 1] - sma[i - 1];
+    if (!Number.isFinite(diffNow) || !Number.isFinite(diffPrev)) break;
+    if (diffPrev <= 0 && diffNow > 0) { cross = { direction: "CRUZOU_PARA_CIMA", candlesAgo: ago }; break; }
+    if (diffPrev >= 0 && diffNow < 0) { cross = { direction: "CRUZOU_PARA_BAIXO", candlesAgo: ago }; break; }
+  }
+  return { ema9: ema[n], sma20: sma[n], ema9Slope: slope(ema), sma20Slope: slope(sma), order: ema[n] >= sma[n] ? "ALTA" : "BAIXA", cross };
+}

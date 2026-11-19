@@ -531,7 +531,9 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    de QUALQUER open_position, leia como cada tempo está se comportando --
    5m, 15m, 1H e 4H, estocástico 5,3,3 (zona, cruzamento), histograma do
    MACD (ganhando ou perdendo força, virando) E posição do preço frente às
-   médias (EMA9/SMA20) -- e escreva isso no log_thought. O 1H é o que MAIS
+   médias (EMA9 exponencial e SMA20: viradas para cima ou para baixo, ordem
+   e CRUZAMENTO delas -- cruzamento recente contra o lado é aviso forte) --
+   e escreva isso no log_thought. O 1H é o que MAIS
    pesa: dá o sentido da direção (MACD 1H + médias 1H). O 4H confirma ou
    desautoriza o 1H. O 5m e o 15m dão o INSTANTE da entrada: precisam
    concordar com o lado do 1H na hora de entrar -- mas nunca decidem
