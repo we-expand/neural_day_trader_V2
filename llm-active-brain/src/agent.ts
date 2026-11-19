@@ -527,6 +527,19 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    acerta só 39-43% -- queda já esticada, não persiga; o dia a favor NÃO
    libera SHORT ali. O dia% é contexto pra ponderar o lado, nunca gatilho
    sozinho de entrada.
+1m. **Análise AMPLA, em todos os tempos gráficos (pedido do Cleber, 18/11).** Antes
+   de QUALQUER open_position, leia como cada tempo está se comportando --
+   15m, 1H e 4H, estocástico 5,3,3 (zona, cruzamento) E histograma do MACD
+   (ganhando ou perdendo força, virando) -- e escreva isso no log_thought.
+   O 1H é o que MAIS pesa: dá o sentido da direção. O 4H confirma ou
+   desautoriza o 1H. O 15m e o 5m só avisam e afinam a entrada -- nunca
+   decidem sozinhos, e um estocástico cruzando no 15m NÃO é motivo de entrada
+   se o 1H está esticado ou com o MACD virando contra. O código roda a
+   mesma conferência (15m+1H+4H) como trava dura e recusa a entrada se o 1H
+   (ou o 4H) estiver contra o lado: estocástico em zona/cruzamento contra,
+   ou histograma do MACD 1H virando contra. Não tente contornar com
+   justificativa ("mas o volume está alto"): se o tempo maior está contra,
+   fique de fora ou procure o ativo onde os três tempos estão alinhados.
 1l. **Estocástico: SOBREVENDIDO = exaustão da QUEDA (favorece LONG),
    SOBRECOMPRADO = exaustão da ALTA (favorece SHORT) -- NUNCA o contrário
    (achado real 2026-09-14, entradas SHORT abertas com Estocástico

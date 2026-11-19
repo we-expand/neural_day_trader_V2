@@ -6,6 +6,7 @@ import { applyEconomyChange, getBalanceUsd } from "./economy.js";
 import { getAccount, getQuote as getBinanceQuote, placeMarketOrder } from "./broker.js";
 import { mirrorBuy, mirrorSell, openMt5Position, closeMt5Position, increaseMt5Position, listMt5OpenPositions, getRecentClosedTrades, getMt5AccountBalance, getTodayRealizedPnl, getTrialAbortReason, getEntriesCountLast24h, getEntriesTodayBySymbol, enforceMt5StopsAndTargets, type UserTradingConfig } from "./neuralBridge.js";
 import { getQuote as getMt5Quote } from "./mt5Broker.js";
+import { evaluateMtfConfluence } from "./mtfConfluence.js";
 import { getPmiStatus, getPmiBreakout, getPmiCorridor, getDeepCandles, getAtrPercent, getTrendInfo, getLongTermTrendInfo, getVolumeConfirmation, getSupportResistance, getMacd, getSlowStochastic, getLongTermSlowStochastic, getCandlePatterns, getMarketRegime, getMovingAverageDistance, getSmcZonesSummary, getHmmMarketRegime, getImmediateMomentum, computeMarketDirection, getHigherTimeframeChain, getActiveHighImpactNewsWindow, getVixContext, getDailyHighLow, isVolumeFreeWindow } from "./atr.js";
 import { HMM_STATE_CONSOLIDATION, HMM_STATE_TREND, type HmmRegimeLabel } from "./hmmRegime.js";
 import { getPriceExtension, getLastKnownPrice } from "./tickHistory.js";
@@ -2279,6 +2280,33 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // bloqueia so quando o %K SEM suavizacao ja esta em exaustao extrema
       // CONTRA o lado da entrada, mesmo que o Estocastico lento ainda nao
       // tenha "alcancado".
+      // 🔴 2026-11-18 (Cleber, NAS100 LONG com estocastico 1H SOBRECOMPRADO e MACD virando pra baixo): confluencia MULTI-TIMEFRAME
+      // (15m + 1H + 4H, estocastico e MACD) como trava MECANICA. Volta sem passar por gateResult de proposito: nao sai nem no
+      // teste so-LLM nem na expansao (protecao contra entrada contra o tempo maior). Rollback: MT5_MTF_CONFLUENCE_GATE=false.
+      if (process.env.MT5_MTF_CONFLUENCE_GATE !== "false" && !isFomcBtcPlay && !isPmiReacao) {
+        const [s15, s1h, s4h, m15, m1h, m4h] = await Promise.all([
+          getSlowStochastic(symbol, "15m").catch(() => null),
+          getSlowStochastic(symbol, "1H").catch(() => null),
+          getSlowStochastic(symbol, "4H").catch(() => null),
+          getMacd(symbol, "15m").catch(() => null),
+          getMacd(symbol, "1H").catch(() => null),
+          getMacd(symbol, "4H").catch(() => null),
+        ]);
+        const mtf = evaluateMtfConfluence(
+          side as "LONG" | "SHORT",
+          { stoch: { "15m": s15, "1H": s1h, "4H": s4h }, macd: { "15m": m15, "1H": m1h, "4H": m4h } },
+          { isReversal: setupType === "REVERSAO" }
+        );
+        console.log(`[MTF-CONFLUENCIA] ${symbol} ${side} ${mtf.blocked ? "BLOQUEADO" : "ok"} -- ${mtf.summary}${mtf.opposing.length ? ` || contra: ${mtf.opposing.join("; ")}` : ""}`);
+        if (mtf.blocked) {
+          return {
+            error:
+              `${symbol}: CONFLUENCIA MULTI-TIMEFRAME REPROVADA -- ${mtf.reason} Leituras (estocastico 5,3,3 / MACD): ${mtf.summary}. ` +
+              `Analise de grafico e um passeio por TODOS os tempos graficos: o tempo maior manda e o 15m so avisa. Posicao NAO aberta. ` +
+              `Espere os tempos maiores alinharem com ${side}, ou avalie outro ativo/lado.`,
+          };
+        }
+      }
       const RAW_STOCH_EXTREME_OVERBOUGHT = 95;
       const RAW_STOCH_EXTREME_OVERSOLD = 5;
       if (stochasticForReversalCheck) {
