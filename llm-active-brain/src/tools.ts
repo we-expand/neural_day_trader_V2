@@ -2284,17 +2284,21 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       // (15m + 1H + 4H, estocastico e MACD) como trava MECANICA. Volta sem passar por gateResult de proposito: nao sai nem no
       // teste so-LLM nem na expansao (protecao contra entrada contra o tempo maior). Rollback: MT5_MTF_CONFLUENCE_GATE=false.
       if (process.env.MT5_MTF_CONFLUENCE_GATE !== "false" && !isFomcBtcPlay && !isPmiReacao) {
-        const [s15, s1h, s4h, m15, m1h, m4h] = await Promise.all([
+        const [s5, s15, s1h, s4h, m5, m15, m1h, m4h, ma15, ma1h] = await Promise.all([
+          getSlowStochastic(symbol, "5m").catch(() => null),
           getSlowStochastic(symbol, "15m").catch(() => null),
           getSlowStochastic(symbol, "1H").catch(() => null),
           getSlowStochastic(symbol, "4H").catch(() => null),
+          getMacd(symbol, "5m").catch(() => null),
           getMacd(symbol, "15m").catch(() => null),
           getMacd(symbol, "1H").catch(() => null),
           getMacd(symbol, "4H").catch(() => null),
+          getMovingAverageDistance(symbol, "15m").catch(() => null),
+          getMovingAverageDistance(symbol, "1H").catch(() => null),
         ]);
         const mtf = evaluateMtfConfluence(
           side as "LONG" | "SHORT",
-          { stoch: { "15m": s15, "1H": s1h, "4H": s4h }, macd: { "15m": m15, "1H": m1h, "4H": m4h } },
+          { stoch: { "5m": s5, "15m": s15, "1H": s1h, "4H": s4h }, macd: { "5m": m5, "15m": m15, "1H": m1h, "4H": m4h }, ma: { "15m": ma15, "1H": ma1h } },
           { isReversal: setupType === "REVERSAO" }
         );
         console.log(`[MTF-CONFLUENCIA] ${symbol} ${side} ${mtf.blocked ? "BLOQUEADO" : "ok"} -- ${mtf.summary}${mtf.opposing.length ? ` || contra: ${mtf.opposing.join("; ")}` : ""}`);

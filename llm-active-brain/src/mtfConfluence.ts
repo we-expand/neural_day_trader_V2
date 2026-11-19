@@ -5,14 +5,16 @@
 // de 02/09). Esta trava e MECANICA e le 15m + 1H + 4H (estocastico 5,3,3 e MACD) antes de qualquer entrada.
 //
 // Funcao pura (sem I/O) de proposito: testavel com leituras fabricadas. Quem busca os dados e tools.ts.
-import type { MacdResult, SlowStochasticResult } from "./atr.js";
+import type { MacdResult, MovingAverageDistance, SlowStochasticResult } from "./atr.js";
 
 export type MtfSide = "LONG" | "SHORT";
-export type MtfTimeframe = "15m" | "1H" | "4H";
+export type MtfTimeframe = "5m" | "15m" | "1H" | "4H";
 
 export interface MtfReadings {
   stoch: Record<MtfTimeframe, SlowStochasticResult | null>;
   macd: Record<MtfTimeframe, MacdResult | null>;
+  /** Posicao do preco frente as medias (EMA9/SMA20) -- so 15m e 1H entram na regra. */
+  ma?: Partial<Record<MtfTimeframe, MovingAverageDistance | null>>;
 }
 
 export interface MtfVerdict {
@@ -47,25 +49,38 @@ function macdMomentumOpposes(m: MacdResult, side: MtfSide): string | null {
   return null;
 }
 
+/** Preco do lado errado das DUAS medias (EMA9 e SMA20) = estrutura de medias contra o lado. Pullback so na EMA9 nao conta. */
+function maStackOpposes(m: MovingAverageDistance | null | undefined, side: MtfSide): string | null {
+  if (!m || m.distancePctFromEma9 == null || m.distancePctFromSma20 == null) return null;
+  const e = m.distancePctFromEma9;
+  const x = m.distancePctFromSma20;
+  if (side === "LONG" && e < 0 && x < 0) return `preco ABAIXO da EMA9 (${e.toFixed(2)}%) e da SMA20 (${x.toFixed(2)}%)`;
+  if (side === "SHORT" && e > 0 && x > 0) return `preco ACIMA da EMA9 (+${e.toFixed(2)}%) e da SMA20 (+${x.toFixed(2)}%)`;
+  return null;
+}
+
 /**
  * Regras (o tempo maior manda, METODO_OPERACIONAL secao 2):
  *  1. Estocastico da 1H ou da 4H em zona/cruzamento contra o lado  -> BLOQUEIA (qualquer setup, inclusive REVERSAO:
  *     reversao de LONG so vale depois de SOBREVENDIDO, nunca com a 1H ja SOBRECOMPRADA).
  *  2. Momento do MACD da 1H contra o lado -> BLOQUEIA (exceto REVERSAO, que e contra a 1H por definicao).
  *  3. Sem leitura da 1H (estocastico ou MACD) -> BLOQUEIA: nao se opera "no escuro" sobre o tempo que decide o lado.
- *  4. Senao, conta os avisos do 15m (estocastico e MACD) e do MACD da 4H: 2 ou mais contra o lado -> BLOQUEIA.
- *     1 aviso isolado nao bloqueia (e o "aviso, nao ordem" do 15m no metodo), mas fica registrado no summary.
+ *  2b. Preco do lado errado da EMA9 E da SMA20 na 1H -> BLOQUEIA (exceto REVERSAO).
+ *  4. Senao, conta os avisos de TIMING (5m e 15m: estocastico, MACD, medias) e do MACD da 4H: 2 ou mais contra -> BLOQUEIA.
+ *     A 1H da a direcao; 5m/15m dao o instante da entrada e tem que concordar. 1 aviso isolado nao bloqueia, fica no summary.
  */
 export function evaluateMtfConfluence(side: MtfSide, readings: MtfReadings, opts: { isReversal: boolean }): MtfVerdict {
   const { stoch, macd } = readings;
-  const tfs: MtfTimeframe[] = ["15m", "1H", "4H"];
+  const tfs: MtfTimeframe[] = ["5m", "15m", "1H", "4H"];
   const summary = tfs
     .map((tf) => {
       const s = stoch[tf];
       const m = macd[tf];
       const st = s ? `est ${fmt(s.k)}/${fmt(s.d)} ${s.label}${s.crossing ? " " + s.crossing : ""}` : "est n/d";
       const mc = m ? `MACD ${m.label}${m.turning ? " " + m.turning : ""}${m.crossing ? " " + m.crossing : ""}` : "MACD n/d";
-      return `${tf}: ${st}; ${mc}`;
+      const a = readings.ma?.[tf];
+      const mm = a && a.distancePctFromEma9 != null && a.distancePctFromSma20 != null ? `; medias ${a.distancePctFromEma9.toFixed(2)}%/${a.distancePctFromSma20.toFixed(2)}% (EMA9/SMA20)` : "";
+      return `${tf}: ${st}; ${mc}${mm}`;
     })
     .join(" | ");
 
@@ -100,13 +115,27 @@ export function evaluateMtfConfluence(side: MtfSide, readings: MtfReadings, opts
       opposing.push(`1H ${o}`);
     }
   }
-  // Regra 4: avisos do 15m e MACD 4H
+  // Regra 2b: medias da 1H contra (nao vale pra REVERSAO)
+  if (!opts.isReversal) {
+    const o = maStackOpposes(readings.ma?.["1H"], side);
+    if (o) {
+      hard.push(`1H medias contra: ${o}`);
+      opposing.push(`1H medias contra: ${o}`);
+    }
+  }
+  // Regra 4: timing (5m e 15m), medias do 15m e MACD 4H
   const soft: string[] = [];
+  const s5 = stoch["5m"] ? stochOpposes(stoch["5m"], side) : null;
+  if (s5) soft.push(`5m ${s5}`);
   const s15 = stoch["15m"] ? stochOpposes(stoch["15m"], side) : null;
   if (s15) soft.push(`15m ${s15}`);
   if (!opts.isReversal) {
+    const m5 = macd["5m"] ? macdMomentumOpposes(macd["5m"], side) : null;
+    if (m5) soft.push(`5m ${m5}`);
     const m15 = macd["15m"] ? macdMomentumOpposes(macd["15m"], side) : null;
     if (m15) soft.push(`15m ${m15}`);
+    const ma15 = maStackOpposes(readings.ma?.["15m"], side);
+    if (ma15) soft.push(`15m medias contra: ${ma15}`);
     const m4 = macd["4H"] ? macdMomentumOpposes(macd["4H"], side) : null;
     if (m4) soft.push(`4H ${m4}`);
   }
@@ -125,7 +154,7 @@ export function evaluateMtfConfluence(side: MtfSide, readings: MtfReadings, opts
       blocked: true,
       opposing,
       summary,
-      reason: `${soft.length} avisos de tempos menores/4H contra ${side} sem nenhum a favor que compense: ${soft.join("; ")}.`,
+      reason: `${soft.length} avisos de tempos menores/4H contra ${side} na hora de entrar (os tempos menores dao o gatilho e precisam concordar): ${soft.join("; ")}.`,
     };
   }
   return { blocked: false, opposing, summary, reason: "" };

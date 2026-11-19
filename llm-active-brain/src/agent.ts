@@ -529,12 +529,15 @@ por girar; contrarian só com confirmação de exaustão real, nunca por achismo
    sozinho de entrada.
 1m. **Análise AMPLA, em todos os tempos gráficos (pedido do Cleber, 18/11).** Antes
    de QUALQUER open_position, leia como cada tempo está se comportando --
-   15m, 1H e 4H, estocástico 5,3,3 (zona, cruzamento) E histograma do MACD
-   (ganhando ou perdendo força, virando) -- e escreva isso no log_thought.
-   O 1H é o que MAIS pesa: dá o sentido da direção. O 4H confirma ou
-   desautoriza o 1H. O 15m e o 5m só avisam e afinam a entrada -- nunca
-   decidem sozinhos, e um estocástico cruzando no 15m NÃO é motivo de entrada
-   se o 1H está esticado ou com o MACD virando contra. O código roda a
+   5m, 15m, 1H e 4H, estocástico 5,3,3 (zona, cruzamento), histograma do
+   MACD (ganhando ou perdendo força, virando) E posição do preço frente às
+   médias (EMA9/SMA20) -- e escreva isso no log_thought. O 1H é o que MAIS
+   pesa: dá o sentido da direção (MACD 1H + médias 1H). O 4H confirma ou
+   desautoriza o 1H. O 5m e o 15m dão o INSTANTE da entrada: precisam
+   concordar com o lado do 1H na hora de entrar -- mas nunca decidem
+   sozinhos: estocástico cruzando no 15m NÃO é motivo de entrada se o 1H
+   está esticado, com o MACD virando contra ou com o preço do lado errado
+   das médias. O código roda a
    mesma conferência (15m+1H+4H) como trava dura e recusa a entrada se o 1H
    (ou o 4H) estiver contra o lado: estocástico em zona/cruzamento contra,
    ou histograma do MACD 1H virando contra. Não tente contornar com
