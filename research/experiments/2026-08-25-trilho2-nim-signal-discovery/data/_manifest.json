@@ -1,0 +1,186 @@
+[
+  {
+    "symbol": "BTCUSD",
+    "tf": "5m",
+    "ok": true,
+    "count": 12960,
+    "source": "binance"
+  },
+  {
+    "symbol": "BTCUSD",
+    "tf": "15m",
+    "ok": true,
+    "count": 11520,
+    "source": "binance"
+  },
+  {
+    "symbol": "BTCUSD",
+    "tf": "1h",
+    "ok": true,
+    "count": 8760,
+    "source": "binance"
+  },
+  {
+    "symbol": "XBNUSD",
+    "tf": "5m",
+    "ok": true,
+    "count": 12960,
+    "source": "binance"
+  },
+  {
+    "symbol": "XBNUSD",
+    "tf": "15m",
+    "ok": true,
+    "count": 11520,
+    "source": "binance"
+  },
+  {
+    "symbol": "XBNUSD",
+    "tf": "1h",
+    "ok": true,
+    "count": 8760,
+    "source": "binance"
+  },
+  {
+    "symbol": "EURUSD",
+    "tf": "5m",
+    "ok": false,
+    "error": "Function failed due to not having enough compute resources (please check logs)"
+  },
+  {
+    "symbol": "EURUSD",
+    "tf": "15m",
+    "ok": true,
+    "count": 8256,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "EURUSD",
+    "tf": "1h",
+    "ok": true,
+    "count": 6216,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "XAUUSD",
+    "tf": "5m",
+    "ok": true,
+    "count": 2000,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "XAUUSD",
+    "tf": "15m",
+    "ok": true,
+    "count": 7870,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "XAUUSD",
+    "tf": "1h",
+    "ok": true,
+    "count": 5909,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "XAGUSD",
+    "tf": "5m",
+    "ok": false,
+    "error": "Function failed due to not having enough compute resources (please check logs)"
+  },
+  {
+    "symbol": "XAGUSD",
+    "tf": "15m",
+    "ok": true,
+    "count": 7778,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "XAGUSD",
+    "tf": "1h",
+    "ok": true,
+    "count": 5911,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "US30",
+    "tf": "5m",
+    "ok": false,
+    "error": "Function failed due to not having enough compute resources (please check logs)"
+  },
+  {
+    "symbol": "US30",
+    "tf": "15m",
+    "ok": true,
+    "count": 7864,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "US30",
+    "tf": "1h",
+    "ok": true,
+    "count": 5906,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "NAS100",
+    "tf": "5m",
+    "ok": false,
+    "error": "Function failed due to not having enough compute resources (please check logs)"
+  },
+  {
+    "symbol": "NAS100",
+    "tf": "15m",
+    "ok": true,
+    "count": 7864,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "NAS100",
+    "tf": "1h",
+    "ok": true,
+    "count": 5906,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "SPX500",
+    "tf": "5m",
+    "ok": false,
+    "error": "Function failed due to not having enough compute resources (please check logs)"
+  },
+  {
+    "symbol": "SPX500",
+    "tf": "15m",
+    "ok": true,
+    "count": 7864,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "SPX500",
+    "tf": "1h",
+    "ok": true,
+    "count": 5906,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "GER40",
+    "tf": "5m",
+    "ok": true,
+    "count": 7897,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "GER40",
+    "tf": "15m",
+    "ok": true,
+    "count": 6983,
+    "source": "metaapi"
+  },
+  {
+    "symbol": "GER40",
+    "tf": "1h",
+    "ok": true,
+    "count": 5344,
+    "source": "metaapi"
+  }
+]

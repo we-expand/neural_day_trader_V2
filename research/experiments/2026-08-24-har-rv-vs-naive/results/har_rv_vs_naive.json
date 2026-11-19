@@ -1,0 +1,28 @@
+{
+  "symbol": "BTCUSDT",
+  "interval": "5m",
+  "daysRequested": 730,
+  "daysWithCompleteRv": 731,
+  "observationsUsable": 709,
+  "trainSize": 531,
+  "testSize": 178,
+  "harBeta": [
+    0.0002603318464780237,
+    0.24227056770687172,
+    0.32224949129264585,
+    0.01706258328262416
+  ],
+  "rmse": {
+    "har": 0.0003601815283799271,
+    "naive": 0.0003844261188405283
+  },
+  "qlike": {
+    "har": 0.2506432989241354,
+    "naive": 0.342385497218287,
+    "diffMean": -0.0917421982941516,
+    "tStat": -2.094256510021649,
+    "significant": true
+  },
+  "verdict": "HAR-RV estatisticamente melhor (QLIKE, paired t-test)",
+  "generatedAt": "2026-08-24T14:22:58.317Z"
+}

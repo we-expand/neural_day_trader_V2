@@ -31,6 +31,7 @@
     "research/**/*.ts",
     "src/app/services/indicators/**/*.ts",
     "src/app/services/smc/**/*.ts",
+    "src/app/services/partners/**/*.ts",
     "src/app/types/strategy.ts",
     "src/app/data/presetStrategies.ts"
   ]

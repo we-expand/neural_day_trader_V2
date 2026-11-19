@@ -4,7 +4,7 @@ primary_region = "gru"
 [build]
 
 [processes]
-  app = "node dist/streaming-relay/src/index.js"
+  app = "node dist/index.js"
 
 # Serviço sempre-ligado — sem auto-stop/auto-start (diferente do padrão do
 # Fly.io pra web apps). Não expõe porta HTTP, só mantém a conexão de

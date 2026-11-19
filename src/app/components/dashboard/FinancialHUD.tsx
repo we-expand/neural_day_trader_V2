@@ -6,9 +6,14 @@ import { toast } from 'sonner';
 
 export const FinancialHUD = memo(function FinancialHUD() {
   const { user } = useAuth();
-  const { portfolio, activeOrders, houseStats } = useTradingContext(); 
+  const { portfolio, activeOrders, houseStats } = useTradingContext();
   const [loading, setLoading] = useState(false);
   const [mathUpgradeActive, setMathUpgradeActive] = useState(false);
+  // 🔴 2026-09-08: saldo real (quando broker conectado) é sincronizado num
+  // único lugar, dentro do reconcile() de useApexLogic.ts -- ver comentário
+  // lá. Um segundo poller aqui (tentativa anterior) competia com aquele e
+  // perdia a corrida (5s vs 15s), sempre voltando pro valor simulado.
+  // FinancialHUD só EXIBE `portfolio.balance/equity`, não sincroniza nada.
   
   // Real-time PnL Calculation State - usando useMemo para evitar recalcular
   const startBalance = useMemo(() => 
@@ -157,6 +162,35 @@ export const FinancialHUD = memo(function FinancialHUD() {
               {floatingPnL >= 0 ? '+' : ''}{floatingPnL.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })}
             </span>
           </div>
+
+          {/* 🔴 2026-09-09 (pedido do Cleber, comparando com o painel do
+              MetaTrader): margem REAL da conta conectada — só aparece quando
+              há dado real da MetaAPI (portfolio.margin vem do reconcile() em
+              useApexLogic.ts, nunca fabricado). Sem broker conectado, este
+              bloco simplesmente não renderiza (nada a mostrar em DEMO). */}
+          {portfolio.marginLevel != null && (
+            <>
+              <div className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-slate-400 font-mono">🏦 Margem Usada</span>
+                <span className="text-sm font-bold text-slate-200">
+                  {(portfolio.margin ?? 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-slate-400 font-mono">🆓 Margem Líquida</span>
+                <span className="text-sm font-bold text-slate-200">
+                  {(portfolio.freeMargin ?? 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-slate-400 font-mono">📊 Nível de Margem</span>
+                <span className={`text-sm font-bold ${portfolio.marginLevel < 150 ? 'text-red-400' : 'text-slate-200'}`}>
+                  {portfolio.marginLevel.toFixed(2)}%
+                </span>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Live Indicator */}

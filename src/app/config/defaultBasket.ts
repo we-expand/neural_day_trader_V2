@@ -87,3 +87,19 @@ export const DEFAULT_ANALYSIS_BASKET: string[] = [
  * é gasto de chamada sem informação nova).
  */
 export const ASSETS_REFRESHED_PER_TICK = 3;
+
+/**
+ * Cesta padrão de `activeAssets` (ativos ATIVOS, o que o motor efetivamente
+ * varre pra abrir posição) — diferente de `DEFAULT_ANALYSIS_BASKET` acima,
+ * que é o universo AMPLO de ranking (39 ativos, por design). Adicionada em
+ * 2026-08-20: o painel de configuração do AI Trader estava abrindo com os 39
+ * ativos da cesta de análise inteira pré-marcados como ativos, sem o usuário
+ * ter escolhido isso — Cleber pediu que o default seja enxuto (9), e o
+ * usuário amplia a partir daí se quiser. Lista definida pelo Cleber: 1
+ * subconjunto diversificado (FX, metal, energia, cripto, índices), sem
+ * XAGUSD (removido de propósito da cesta de análise em 2026-08-16 por
+ * resultado negativo medido — ver cabeçalho deste arquivo).
+ */
+export const DEFAULT_ACTIVE_ASSETS: string[] = [
+  'EURUSD', 'XAUUSD', 'UKOUSD', 'BTCUSD', 'SOLUSD', 'ETHUSD', 'GER40', 'SPX500', 'NAS100'
+];

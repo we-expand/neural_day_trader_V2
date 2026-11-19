@@ -35,11 +35,11 @@ export function BacktestConfigSummary({ config }: BacktestConfigSummaryProps) {
   const getDirectionInfo = () => {
     switch (config.tradeDirection) {
       case 'long':
-        return { icon: ArrowUp, label: 'Comprado (Long)', color: 'text-emerald-400' };
+        return { icon: ArrowUp, label: 'Comprado', color: 'text-emerald-400' };
       case 'short':
-        return { icon: ArrowDown, label: 'Vendido (Short)', color: 'text-red-400' };
+        return { icon: ArrowDown, label: 'Vendido', color: 'text-red-400' };
       case 'both':
-        return { icon: ArrowUpDown, label: 'Ambos (Long & Short)', color: 'text-blue-400' };
+        return { icon: ArrowUpDown, label: 'Ambos (Compra & Venda)', color: 'text-blue-400' };
     }
   };
 

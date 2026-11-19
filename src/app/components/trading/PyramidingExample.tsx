@@ -316,7 +316,7 @@ export function PyramidingExample() {
           </div>
           <div className="flex gap-3">
             <span className="text-blue-400 font-bold">2.</span>
-            <p>Clique em "Iniciar Posição Demo" para simular uma entrada LONG em EURUSD</p>
+            <p>Clique em "Iniciar Posição Demo" para simular uma entrada de COMPRA em EURUSD</p>
           </div>
           <div className="flex gap-3">
             <span className="text-blue-400 font-bold">3.</span>

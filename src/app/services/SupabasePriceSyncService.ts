@@ -7,6 +7,21 @@
 import { supabase, isSupabaseActive } from '@/lib/supabaseClient';
 import { ALL_ASSETS } from '@/app/config/assetDatabase';
 
+// ✅ 2026-09-05: contratos CRYPTO exclusivos da Infinox (nome de corretora, não
+// de exchange) sem par real na Binance -- symbol+'USDT' abaixo virava um par
+// inexistente (ex: BTCXBNUSDT) e disparava 502/404 a cada ciclo de sync (5s),
+// pra sempre, silenciosamente engolido pelo .catch(() => null) logo abaixo.
+// Confirmado ao vivo: BTCXBN sozinho gerou dezenas de 502 em minutos e
+// coincidiu com o Dashboard travando em preço zerado (fila de rede
+// saturada, mesmo padrão já documentado em DirectBinanceService.ts). Mantém
+// de fora só o que não tem par Binance genuíno -- BTCUSD/ETHUSD/SOLUSD etc.
+// continuam normalmente, eles têm USDT real.
+const CRYPTO_SYMBOLS_WITHOUT_BINANCE_PAIR = new Set([
+  'BTCEUR', 'BTCBNB', 'BTCXBN', 'BTCETH', 'BTCLTC', 'BTCUSDCRP',
+  'XETUSD', 'XETUSDCRP', 'XBNUSD', 'XBNUSDCRP', 'XLCUSD', 'XLCUSDCRP',
+  'XETEUR', 'XETXBN', 'XETXLC',
+]);
+
 interface PriceSyncConfig {
   syncInterval: number; // milliseconds
   batchSize: number;
@@ -100,7 +115,7 @@ class SupabasePriceSyncService {
     try {
       // Buscar preços da Binance para criptos
       const cryptoSymbols = ALL_ASSETS
-        .filter(a => a.category === 'CRYPTO')
+        .filter(a => a.category === 'CRYPTO' && !CRYPTO_SYMBOLS_WITHOUT_BINANCE_PAIR.has(a.symbol))
         .slice(0, this.config.batchSize)
         .map(a => `${a.symbol}USDT`);
 

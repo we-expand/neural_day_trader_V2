@@ -1,0 +1,18 @@
+# Backend de traces local, opcional -- só pra visualizar o que o
+# OpenTelemetry exporta (ver src/tracing.ts, OTEL_ENABLED em .env.example).
+# Não faz parte do deploy de produção, é só ferramenta de dev.
+#
+# Uso:
+#   docker compose -f docker-compose.tracing.yml up -d
+#   OTEL_ENABLED=true no .env, depois `npm run start`
+#   abrir http://localhost:16686 (UI do Jaeger) e filtrar service = llm-active-brain
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: llm-brain-jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686" # UI
+      - "4318:4318"   # OTLP/HTTP (recebe os traces deste projeto)
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true

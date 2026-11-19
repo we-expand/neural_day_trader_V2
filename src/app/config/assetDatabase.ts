@@ -118,6 +118,16 @@ export const ALL_ASSETS: Asset[] = [
   // do XBN visto nesta sessão pro Binance Coin) — confirmado real via
   // /mt5-prices (~288,65), override em brokerRegistry.ts.
   { symbol: 'BTCBNB', name: 'Bitcoin (BNB)', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin — cotado em Binance Coin' },
+  // 🔴 2026-09-06 (achado ao vivo, Cleber reportou Gráfico/Dashboard
+  // "congelado" numa posição real aberta pelo LLM Brain): o motor
+  // (llm-active-brain/src/assetBasket.ts) opera direto com o símbolo REAL da
+  // corretora 'BTCXBN' (não o alias de exibição 'BTCBNB' acima) -- é assim
+  // que fica gravado em ai_trades.symbol. Sem entrada própria pra esse
+  // símbolo exato, getAssetBySymbol('BTCXBN') retorna null e o Gráfico exibe
+  // "Ativo desconhecido: BTCXBN", preço zerado e falha ao buscar candles pra
+  // qualquer posição real nesse símbolo. Entrada própria (mesmas specs de
+  // BTCBNB acima, mesmo ativo, nome real da corretora).
+  { symbol: 'BTCXBN', name: 'Bitcoin (BNB)', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 5, tradingHours: '24/7', description: 'Bitcoin — cotado em Binance Coin (símbolo real da corretora)' },
   // ✅ 2026-07-16: mesmo padrão do BTCBNB — BTCETH (real 'BTCXET' na
   // Infinox, ~34,15) e BTCLTC (real 'BTCXLC', ~1437,77) não existiam no
   // catálogo. Overrides em brokerRegistry.ts.
@@ -131,13 +141,30 @@ export const ALL_ASSETS: Asset[] = [
   { symbol: 'DOTUSD', name: 'Polkadot', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🔴', precision: 3, lotSize: 1, minLot: 0.1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'Polkadot' },
   { symbol: 'MATICUSD', name: 'Polygon', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🟣', precision: 4, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Polygon' },
   { symbol: 'AVAXUSD', name: 'Avalanche', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🔺', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'Avalanche' },
+  // 🔴 2026-09-06: mesmo padrão -- 'AVAUSD' é o nome real da corretora pro
+  // mesmo ativo de AVAXUSD (Avalanche), usado pelo LLM Brain (assetBasket.ts).
+  { symbol: 'AVAUSD', name: 'Avalanche', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🔺', precision: 2, lotSize: 1, minLot: 0.1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'Avalanche — símbolo real da corretora' },
   { symbol: 'LINKUSD', name: 'Chainlink', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🔗', precision: 3, lotSize: 1, minLot: 0.1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'Chainlink' },
+  // 🔴 2026-09-06: mesmo padrão do DOGUSD/BTCXBN acima -- 'LNKUSD' é o nome
+  // real da corretora pro mesmo ativo de LINKUSD (confirmado em
+  // llm-active-brain/src/assetBasket.ts, "LINKUSD" 404 na Infinox).
+  { symbol: 'LNKUSD', name: 'Chainlink', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🔗', precision: 3, lotSize: 1, minLot: 0.1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'Chainlink — símbolo real da corretora' },
   { symbol: 'UNIUSD', name: 'Uniswap', category: 'CRYPTO', subCategory: 'DeFi', icon: '🦄', precision: 3, lotSize: 1, minLot: 0.1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'Uniswap' },
   { symbol: 'ATOMUSD', name: 'Cosmos', category: 'CRYPTO', subCategory: 'Altcoins', icon: '⚛️', precision: 3, lotSize: 1, minLot: 0.1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'Cosmos' },
+  // 🔴 2026-09-06: mesmo padrão -- 'ATMUSD' é o nome real da corretora pro
+  // mesmo ativo de ATOMUSD (Cosmos), usado pelo LLM Brain (assetBasket.ts).
+  { symbol: 'ATMUSD', name: 'Cosmos', category: 'CRYPTO', subCategory: 'Altcoins', icon: '⚛️', precision: 3, lotSize: 1, minLot: 0.1, maxLot: 10000, leverage: 5, tradingHours: '24/7', description: 'Cosmos — símbolo real da corretora' },
   { symbol: 'XLMUSD', name: 'Stellar', category: 'CRYPTO', subCategory: 'Altcoins', icon: '✨', precision: 5, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Stellar' },
   { symbol: 'LTCUSD', name: 'Litecoin', category: 'CRYPTO', subCategory: 'Altcoins', icon: 'Ł', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Litecoin' },
   { symbol: 'BCHUSD', name: 'Bitcoin Cash', category: 'CRYPTO', subCategory: 'Bitcoin', icon: '₿', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 1000, leverage: 5, tradingHours: '24/7', description: 'Bitcoin Cash' },
   { symbol: 'DOGEUSD', name: 'Dogecoin', category: 'CRYPTO', subCategory: 'Meme Coins', icon: '🐕', precision: 5, lotSize: 1, minLot: 10, maxLot: 1000000, leverage: 2, tradingHours: '24/7', description: 'Dogecoin' },
+  // 🔴 2026-09-06 (achado ao vivo, Cleber reportou "Ativo desconhecido:
+  // DOGUSD" + candles falhando no Gráfico): mesmo padrão do BTCXBN acima --
+  // o LLM Brain (llm-active-brain/src/assetBasket.ts) opera com o nome REAL
+  // da corretora 'DOGUSD' (não o alias de exibição 'DOGEUSD' acima), fica
+  // gravado assim em ai_trades.symbol. Entrada própria com as mesmas specs
+  // de DOGEUSD (mesmo ativo, nome real da corretora).
+  { symbol: 'DOGUSD', name: 'Dogecoin', category: 'CRYPTO', subCategory: 'Meme Coins', icon: '🐕', precision: 5, lotSize: 1, minLot: 10, maxLot: 1000000, leverage: 2, tradingHours: '24/7', description: 'Dogecoin — símbolo real da corretora' },
   { symbol: 'SHIBUSD', name: 'Shiba Inu', category: 'CRYPTO', subCategory: 'Meme Coins', icon: '🐕', precision: 6, lotSize: 1, minLot: 100000, maxLot: 100000000, leverage: 2, tradingHours: '24/7', description: 'Shiba Inu' },
   { symbol: 'BATUSD', name: 'Basic Attention Token', category: 'CRYPTO', subCategory: 'Altcoins', icon: '🦁', precision: 5, lotSize: 1, minLot: 1, maxLot: 100000, leverage: 5, tradingHours: '24/7', description: 'Basic Attention Token' },
   // ✅ 2026-07-16: variantes "liquidadas em cripto" vistas pelo Cleber no
@@ -237,7 +264,16 @@ export const ALL_ASSETS: Asset[] = [
   
   // ASIAN INDICES
   { symbol: 'JP225', name: 'Nikkei 225', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇯🇵', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-15:00 JST', description: 'Nikkei 225' },
+  // 🔴 2026-09-08: mesmo padrão do BTCXBN/DOGUSD acima -- 'JPN225' é o nome
+  // REAL da corretora Infinox (confirmado via /mt5-prices na sessão que
+  // ampliou a cesta do LLM Brain), diferente do alias de exibição 'JP225'
+  // acima. Faltava esta entrada -- Gráfico/boleta mostravam "Ativo
+  // desconhecido: JPN225", ícone/nome caindo no fallback hardcoded "Bitcoin".
+  { symbol: 'JPN225', name: 'Nikkei 225', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇯🇵', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-15:00 JST', description: 'Nikkei 225 — símbolo real da corretora' },
   { symbol: 'HK50', name: 'Hang Seng', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇭🇰', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 HKT', description: 'Hang Seng' },
+  // 🔴 2026-09-08: mesmo padrão acima -- 'HKG33' é o nome real da corretora
+  // pro Hang Seng, alias de exibição é 'HK50'.
+  { symbol: 'HKG33', name: 'Hang Seng', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇭🇰', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:30-16:00 HKT', description: 'Hang Seng — símbolo real da corretora' },
   { symbol: 'AUS200', name: 'ASX 200', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇦🇺', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '10:00-16:00 AEST', description: 'ASX 200' },
   { symbol: 'CHINA50', name: 'FTSE China A50', category: 'INDICES', subCategory: 'Asian Indices', icon: '🇨🇳', precision: 2, lotSize: 1, minLot: 0.01, maxLot: 100, leverage: 100, tradingHours: '09:00-15:00 CST', description: 'FTSE China A50' },
 

@@ -1,0 +1,12 @@
+{
+  "total_trades_com_candle": 171,
+  "skipped_sem_candle_ou_dado": 0,
+  "trades_que_tiveram_lucro_flutuante_relevante": 157,
+  "pct_do_total_que_teve_lucro_flutuante": "91.8%",
+  "trades_que_fecharam_prejuizo_ou_flat": 130,
+  "trades_que_tiveram_lucro_E_devolveram_tudo": 116,
+  "pct_dos_que_tiveram_lucro_que_devolveram_tudo": "73.9%",
+  "pct_do_TOTAL_de_trades_que_e_ganhou_e_devolveu": "67.8%",
+  "mfe_medio_R_de_quem_devolveu": "4.99",
+  "soma_dolar_perdido_por_devolver": "86.24"
+}

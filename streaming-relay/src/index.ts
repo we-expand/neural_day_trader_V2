@@ -15,8 +15,10 @@
  */
 import MetaApi, { SynchronizationListener, MetatraderSymbolPrice } from 'metaapi.cloud-sdk';
 import { createClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 import { ALL_ASSETS } from '../../src/app/config/assetDatabase.js';
 import { isAvailableOnBroker, isCryptoCfdAvailable, getBrokerSymbol } from '../../src/app/config/brokerRegistry.js';
+import { DEFAULT_ANALYSIS_BASKET } from '../../src/app/config/defaultBasket.js';
 
 const METAAPI_TOKEN = requireEnv('METAAPI_TOKEN');
 const METAAPI_ACCOUNT_ID = requireEnv('METAAPI_ACCOUNT_ID');
@@ -43,14 +45,44 @@ function requireEnv(name: string): string {
 // `ValidationError: symbol does not exist`, que sem tratamento derrubava o
 // processo inteiro (loop de crash-restart, nunca chegava a transmitir
 // preço nenhum). Mesmo gate que o frontend já usa em `getRealMarketData`.
+// ⚠️ 2026-08-31: BTCUSD passou a cotar direto da Binance em `/mt5-prices`
+// (ver supabase/functions/server/index.ts, `BINANCE_DIRECT_SYMBOL_MAP`) pra
+// bater exatamente com o site da Binance. Este relay HOJE ESTÁ DESLIGADO em
+// produção (parado e o launch agent removido em 2026-07-23, ver
+// CLAUDE_HISTORY.md — só existe o código-fonte no repo, não é a causa de
+// nenhum sintoma atual), mas se for religado no futuro ele publicaria o tick
+// do BROKER (Infinox/MetaAPI) por cima do valor Binance-preciso do polling
+// (`ensureRealtimeStreamingInitialized` em RealMarketDataService.ts aplica
+// `payload.price` direto) — exclusão preventiva de BTCUSD da assinatura de
+// streaming aqui, pra esse religamento futuro não reintroduzir a divergência
+// contra a Binance sem ninguém perceber.
+// ✅ 2026-09-08: reduzido do catálogo INTEIRO (~361 símbolos, ALL_ASSETS) pra
+// só a cesta curada `DEFAULT_ANALYSIS_BASKET` (39 ativos) — achado real via
+// consulta direta à API da MetaAPI (`GET .../accounts/:id`): a conta
+// dedicada nova (bb99f865...) está com `resourceSlots: 1` e
+// `accountReplicas: []` (tier "high" sem réplica de failover). Resync de 361
+// símbolos de uma vez é pesado o bastante pra estourar a janela de
+// sincronização desse único slot sem redundância — `relay.log` mostrava
+// "resynchronized... did not finish in time" e "timed out waiting for
+// connection status" em loop, cascata que também derrubava as chamadas REST
+// de `/mt5-prices`/`/mt5-candles-history` (HTTP 504 em qualquer símbolo,
+// não só EURUSD — ele só aparecia mais no log por ser o mais consultado).
+// NÃO resolve a causa raiz (falta de réplica — decisão de custo do Cleber,
+// pendente), só reduz a carga de resync enquanto isso não é decidido. Não
+// tira nenhum ativo do ar: fora da cesta, o app cai pro polling HTTP normal
+// via `/mt5-prices` (era assim antes deste relay existir).
+const assetBySymbol = new Map(ALL_ASSETS.map((asset) => [asset.symbol, asset]));
 const brokerSymbolByUnified = new Map<string, string>();
-for (const asset of ALL_ASSETS) {
+for (const unifiedSymbol of DEFAULT_ANALYSIS_BASKET) {
+  const asset = assetBySymbol.get(unifiedSymbol);
+  if (!asset) continue;
+  if (asset.symbol === 'BTCUSD') continue;
   if (asset.category === 'CRYPTO' && !isCryptoCfdAvailable(asset.symbol, 'infinox')) continue;
   if (isAvailableOnBroker(asset.symbol, 'infinox')) {
     brokerSymbolByUnified.set(getBrokerSymbol(asset.symbol, 'infinox'), asset.symbol);
   }
 }
-console.log(`[streaming-relay] 📋 ${brokerSymbolByUnified.size} símbolos disponíveis na corretora, assinando streaming.`);
+console.log(`[streaming-relay] 📋 ${brokerSymbolByUnified.size} símbolos da cesta de análise assinados pra streaming (era ${ALL_ASSETS.length} antes, catálogo inteiro).`);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   realtime: { params: { eventsPerSecond: 20 } },
@@ -63,7 +95,66 @@ const relayChannel = supabase.channel('turbo-main-channel');
 // já usada em `/mt5-prices`, ver supabase/functions/server/index.ts).
 const previousCloseBySymbol = new Map<string, number>();
 
+// 🔴 2026-11-03 (Cleber, operando LIVE: "o delay entre o MetaTrader e a plataforma tem que ser o menor possível"):
+// posições e saldo reais só chegavam por POLLING REST (`/broker/execute` getPositions, 1-3s por chamada, de 5 em 5s),
+// então ordem aberta/fechada/alterada no MT5 levava de 5 a ~10s pra aparecer. A MetaAPI já PUSHA cada mudança de posição
+// pra esta conexão de streaming; agora o relay grava o estado atual (`terminalState`) na tabela `live_account_state`
+// (migration 20261103_live_account_state.sql) e o app assina via Supabase Realtime (postgres_changes). A tabela tem RLS:
+// só quem tem essa conta em `broker_credentials` enxerga a linha -- NÃO vai pelo canal público de preços, que qualquer
+// cliente com a chave anon consegue ouvir. Se a migration ainda não rodou, o relay só loga 1x e segue (preços seguem).
+const LIVE_STATE_TABLE = 'live_account_state';
+const LIVE_STATE_POSITION_DEBOUNCE_MS = 150; // mudança de posição: quase imediato
+const LIVE_STATE_ACCOUNT_MIN_INTERVAL_MS = 2_000; // equity/saldo mudam a cada tick: no máx. 1 gravação a cada 2s
+let liveStateConnection: { terminalState: { positions: any[]; accountInformation?: any } } | null = null;
+let liveStateTimer: ReturnType<typeof setTimeout> | undefined;
+let liveStateLastFlushAt = 0;
+let liveStateWarned = false;
+let liveStateLastPayload = '';
+
+async function flushLiveState() {
+  liveStateTimer = undefined;
+  if (!liveStateConnection) return;
+  const positions = liveStateConnection.terminalState.positions ?? [];
+  const accountInfo = liveStateConnection.terminalState.accountInformation ?? null;
+  // Só grava se mudou de verdade (equity oscila a cada tick; posição parada não gera tráfego).
+  const signature = JSON.stringify({ positions, accountInfo });
+  if (signature === liveStateLastPayload) return;
+  liveStateLastPayload = signature;
+  liveStateLastFlushAt = Date.now();
+  const { error } = await supabase.from(LIVE_STATE_TABLE).upsert({
+    account_id: METAAPI_ACCOUNT_ID,
+    positions,
+    account_info: accountInfo,
+    updated_at: new Date().toISOString(),
+  });
+  // Falhou: esquece a assinatura, senão o mesmo estado seria tratado como "já gravado" e nunca mais tentaria.
+  if (error) liveStateLastPayload = '';
+  if (error && !liveStateWarned) {
+    liveStateWarned = true;
+    console.error(`[streaming-relay] ⚠️ Não consegui gravar ${LIVE_STATE_TABLE} (migration 20261103_live_account_state.sql rodou?):`, error.message);
+  } else if (!error && liveStateWarned) {
+    liveStateWarned = false;
+    console.log(`[streaming-relay] ✅ ${LIVE_STATE_TABLE} voltou a gravar.`);
+  }
+}
+
+function scheduleLiveStateFlush(kind: 'position' | 'account') {
+  if (liveStateTimer) return;
+  const wait = kind === 'position'
+    ? LIVE_STATE_POSITION_DEBOUNCE_MS
+    : Math.max(LIVE_STATE_POSITION_DEBOUNCE_MS, LIVE_STATE_ACCOUNT_MIN_INTERVAL_MS - (Date.now() - liveStateLastFlushAt));
+  liveStateTimer = setTimeout(() => { void flushLiveState(); }, wait);
+}
+
 class RelaySynchronizationListener extends SynchronizationListener {
+  // Mudanças de posição (abrir/fechar/alterar stop-alvo/volume) -- direto do terminal MT5.
+  async onPositionsReplaced() { scheduleLiveStateFlush('position'); }
+  async onPositionsUpdated() { scheduleLiveStateFlush('position'); }
+  async onPositionUpdated() { scheduleLiveStateFlush('position'); }
+  async onPositionRemoved() { scheduleLiveStateFlush('position'); }
+  async onPositionsSynchronized() { scheduleLiveStateFlush('position'); }
+  async onAccountInformationUpdated() { scheduleLiveStateFlush('account'); }
+
   async onSymbolPriceUpdated(_instanceIndex: string, price: MetatraderSymbolPrice) {
     const unified = brokerSymbolByUnified.get(price.symbol);
     if (!unified) return; // símbolo fora do catálogo real, ignora
@@ -84,25 +175,55 @@ class RelaySynchronizationListener extends SynchronizationListener {
         change_percent_24h: changePercent,
         volume: 0,
         timestamp: new Date().toISOString(),
+        // Horario REAL do tick na corretora (o motor usa pra detectar tick obsoleto).
+        tick_time: price.time instanceof Date ? price.time.toISOString() : undefined,
       },
     });
   }
+}
+
+// ⚠️ CORRIGIDO 2026-09-07 (causa raiz do incidente de 2026-07-23): a conta
+// nunca chegava a sincronizar de verdade ("not connected to broker yet") e
+// `waitConnected`/`waitSynchronized` do SDK retry internamente SEM TETO —
+// combinado com `launchd`/`KeepAlive` reiniciando o processo a cada crash,
+// isso martelou a conta MetaAPI compartilhada 24h/dia por dias, sozinho,
+// sem nenhum usuário envolvido. Agora cada tentativa de conectar tem
+// timeout próprio (`CONNECT_TIMEOUT_MS`) e, se falhar, o processo espera um
+// backoff crescente (`BACKOFF_BASE_MS` dobrando até `BACKOFF_MAX_MS`) ANTES
+// de sair — mesmo que o orquestrador (Fly.io) reinicie na hora, não dá pra
+// tentar de novo mais rápido que esse piso. Nunca reintroduzir um loop sem
+// teto de tentativa nem sem backoff mínimo antes de sair.
+const CONNECT_TIMEOUT_MS = 60_000;
+const BACKOFF_BASE_MS = 15_000;
+const BACKOFF_MAX_MS = 5 * 60_000;
+
+function withTimeoutOuter<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`timeout: ${label}`)), ms)),
+  ]);
 }
 
 async function main() {
   await relayChannel.subscribe();
   console.log('[streaming-relay] ✅ Conectado ao canal Supabase Realtime (turbo-main-channel).');
 
+  connectBinanceBtcTicker();
+
   const api = new MetaApi(METAAPI_TOKEN);
   const account = await api.metatraderAccountApi.getAccount(METAAPI_ACCOUNT_ID);
-  await account.waitConnected();
+  await withTimeoutOuter(account.waitConnected(), CONNECT_TIMEOUT_MS, 'account.waitConnected');
 
   const connection = account.getStreamingConnection();
   connection.addSynchronizationListener(new RelaySynchronizationListener());
+  liveStateConnection = connection as any;
 
   await connection.connect();
-  await connection.waitSynchronized();
+  await withTimeoutOuter(connection.waitSynchronized(), CONNECT_TIMEOUT_MS, 'connection.waitSynchronized');
   console.log('[streaming-relay] ✅ Conexão de streaming MetaAPI sincronizada.');
+  scheduleLiveStateFlush('position'); // estado inicial, sem esperar a 1ª mudança
+  // Batimento: a cada 20s regrava mesmo sem mudança, pra `updated_at` provar que o relay está vivo (a tela confia na linha enquanto ela é recente).
+  setInterval(() => { liveStateLastPayload = ''; void flushLiveState(); }, 20_000);
 
   // ⚠️ CORRIGIDO 2026-07-14: o seed do previousClose (candle D1) rodava
   // SEQUENCIAL e SEM TIMEOUT antes de qualquer assinatura de preço — se
@@ -154,7 +275,85 @@ async function main() {
   })();
 }
 
-main().catch((error) => {
-  console.error('[streaming-relay] ❌ Erro fatal, encerrando (Fly.io reinicia automaticamente):', error);
-  process.exit(1);
-});
+// ✅ 2026-09-12 (pedido do Cleber, "melhorar o delay/latência do BTCUSD"):
+// BTCUSD é excluído da assinatura MetaAPI acima de propósito (ver comentário
+// de 2026-08-31) e até aqui só tinha preço via REST polling em `/mt5-prices`
+// (ticker 24hr da Binance, consultado a cada ~1,5-2s pelo frontend) — o
+// único ativo da cesta sem push em tempo real. WebSocket público da Binance
+// (`@ticker`, sem autenticação, mesmo par BTCUSDT já usado no polling REST)
+// publicado no MESMO canal/formato `turbo-main-channel` → `price-update`,
+// pra ficar consistente com o resto da cesta (sub-segundo em vez de
+// aguardar o próximo ciclo de poll). Não muda o par nem a fonte de preço
+// (continua Binance, nunca Infinox/MetaAPI) — só o transporte, de REST pra
+// push. Reconecta sozinho com backoff simples se a conexão cair; isolado da
+// conexão MetaAPI (falha aqui nunca derruba o restante do relay).
+const BINANCE_WS_RECONNECT_BASE_MS = 2_000;
+const BINANCE_WS_RECONNECT_MAX_MS = 30_000;
+let binanceWsReconnectAttempts = 0;
+
+function connectBinanceBtcTicker() {
+  const ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@ticker');
+
+  ws.on('open', () => {
+    binanceWsReconnectAttempts = 0;
+    console.log('[streaming-relay] ✅ WebSocket Binance (BTCUSDT ticker) conectado.');
+  });
+
+  ws.on('message', (raw) => {
+    try {
+      const ticker = JSON.parse(raw.toString());
+      const price = parseFloat(ticker.c);
+      const bid = parseFloat(ticker.b);
+      const ask = parseFloat(ticker.a);
+      if (!(price > 0)) return;
+
+      relayChannel.send({
+        type: 'broadcast',
+        event: 'price-update',
+        payload: {
+          asset_symbol: 'BTCUSD',
+          price,
+          bid: bid > 0 ? bid : price,
+          ask: ask > 0 ? ask : price,
+          change_24h: parseFloat(ticker.p) || 0,
+          change_percent_24h: parseFloat(ticker.P) || 0,
+          volume: parseFloat(ticker.v) || 0,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      console.error('[streaming-relay] ⚠️ Falha ao processar ticker BTCUSDT da Binance:', error instanceof Error ? error.message : error);
+    }
+  });
+
+  const scheduleReconnect = () => {
+    binanceWsReconnectAttempts += 1;
+    const backoffMs = Math.min(BINANCE_WS_RECONNECT_BASE_MS * 2 ** (binanceWsReconnectAttempts - 1), BINANCE_WS_RECONNECT_MAX_MS);
+    console.warn(`[streaming-relay] ⏳ WebSocket Binance caiu — reconectando em ${Math.round(backoffMs / 1000)}s (tentativa ${binanceWsReconnectAttempts}).`);
+    setTimeout(connectBinanceBtcTicker, backoffMs);
+  };
+
+  ws.on('close', scheduleReconnect);
+  ws.on('error', (error) => {
+    console.error('[streaming-relay] ⚠️ Erro no WebSocket Binance:', error.message);
+    ws.close();
+  });
+}
+
+let consecutiveFailures = 0;
+
+function scheduleRestart() {
+  consecutiveFailures += 1;
+  const backoffMs = Math.min(BACKOFF_BASE_MS * 2 ** (consecutiveFailures - 1), BACKOFF_MAX_MS);
+  console.error(`[streaming-relay] ⏳ Falha #${consecutiveFailures} — aguardando ${Math.round(backoffMs / 1000)}s antes de sair (Fly.io reinicia depois disso). Nunca reduzir este piso sem entender o incidente de 2026-07-23.`);
+  setTimeout(() => process.exit(1), backoffMs);
+}
+
+main()
+  .then(() => {
+    consecutiveFailures = 0;
+  })
+  .catch((error) => {
+    console.error('[streaming-relay] ❌ Erro fatal:', error instanceof Error ? error.message : error);
+    scheduleRestart();
+  });

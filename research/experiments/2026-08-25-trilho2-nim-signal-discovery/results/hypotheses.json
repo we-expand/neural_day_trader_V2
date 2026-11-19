@@ -1,0 +1,53 @@
+{
+  "generatedAt": "2026-08-26T01:26:28.125Z",
+  "model": "nvidia/nemotron-3-nano-30b-a3b",
+  "hypotheses": [
+    {
+      "name": "CorrCrossRegime_5m_BTC",
+      "entryRule": "Se a correlação rolante de 20 períodos entre BTCUSD e XBNUSD (XBT) for > 0.75 e a volatilidade implícita de XBNUSD nos últimos 10 períodos for > 1.2× a média dos últimos 60 períodos, então entrar longo em BTCUSD no fechamento da vela de 5 minutos.",
+      "exitRule": "Fechar posição quando a correlação cair abaixo de 0.60 ou quando o preço atingir 1.5× o ATR(14) em lucro.",
+      "applicableAssets": [
+        "BTCUSD"
+      ],
+      "mechanism": "Regimes de alta correlação entre ativos de risco tendem a mover conjuntamente com mudanças na volatilidade global; quando a correlação está alta e a volatilidade do ativo correlacionado está acima da média, há maior probabilidade de continuidade de movimento de preço no ativo menos correlacionado, permitindo entrada direcional."
+    },
+    {
+      "name": "EconCal_Veto_1h_Spread",
+      "entryRule": "Se o evento econômico programado para a próxima hora (ex.: CPI, Non‑Farm) for classificado como 'Alto Impacto' e o sentimento NLP do texto do evento indicar surpresa positiva (score > 0.6), então entrar curto no spread XUS30/XAUUSD no timeframe 1h no início da vela seguinte.",
+      "exitRule": "Fechar posição após 3 velas de 1h ou quando o spread retroceder 1.0× o ATR(10) em direção ao ponto de entrada.",
+      "applicableAssets": [
+        "US30",
+        "XAUUSD"
+      ],
+      "mechanism": "Eventos de alta relevância que geram surpresa positiva costumam fortalecer o dólar e pressionar ouro; ao combinar o veto de regime com análise de sentimento do texto, cria‑se um filtro direcional que aumenta a probabilidade de movimento adverso ao ouro e favorável ao índice, justificando a entrada no spread."
+    },
+    {
+      "name": "SentimentoNLP_RegimeFilter_15m_SPX",
+      "entryRule": "Se o sentimento NLP do texto de um evento econômico (ex.: decisões de taxa) for negativo (score < -0.5) e a volatilidade 15‑min do SPX500 nos últimos 5 períodos estiver acima da mediana dos últimos 30 períodos, então entrar curto no SPX500 na primeira tick da vela de 15 minutos.",
+      "exitRule": "Fechar quando o preço recuar 1.2× o ATR(10) ou quando o sentimento NLP mudar para neutro/positivo (score ≥ -0.2).",
+      "applicableAssets": [
+        "SPX500"
+      ],
+      "mechanism": "Eventos econômicos com sentimento negativo tendem a gerar movimentos de correção nos índices de ações; a combinação com alta volatilidade local indica que o mercado ainda está processando a informação, criando oportunidade de entrada direcional baseada na reação esperada do índice."
+    },
+    {
+      "name": "CorrCrossRegime_1h_XAGUSD",
+      "entryRule": "Se a correlação de 30 períodos entre XAGUSD e XAUUSD for > 0.80 e a volatilidade de XAUUSD nos últimos 20 períodos estiver na faixa interquartílica superior (acima do 75º percentil), então entrar longo em XAGUSD no fechamento da vela de 1h.",
+      "exitRule": "Fechar quando a correlação cair abaixo de 0.65 ou quando o preço atingir 2.0× o ATR(14) em lucro.",
+      "applicableAssets": [
+        "XAGUSD",
+        "XAUUSD"
+      ],
+      "mechanism": "Pressionamento de volatilidade em ouro costuma arrastar prata devido à sua alta correlação; quando a volatilidade de ouro está elevada e a correlação permanece forte, há maior chance de que prata siga a mesma tendência de alta, justificando a entrada."
+    },
+    {
+      "name": "EconCal_Veto_Sent_NLP_5m_US30",
+      "entryRule": "Se um evento de alta relevância (ex.: relatório de emprego) for classificado como 'Alto Impacto' e o score de surpresa NLP for > 0.7, então entrar longo no US30 no timeframe 5m imediatamente após o fechamento da vela que contém o anúncio.",
+      "exitRule": "Fechar após 4 velas de 5m ou quando o preço retroceder 1.0× o ATR(10) em relação ao ponto de entrada.",
+      "applicableAssets": [
+        "US30"
+      ],
+      "mechanism": "Surpresas positivas em dados de emprego costumam impulsionar o índice de ações dos EUA; ao usar o texto do evento para medir a magnitude da surpresa, cria‑se um sinal direcional que vai além do simples veto binário, permitindo capturar o efeito de magnitude sobre o preço."
+    }
+  ]
+}

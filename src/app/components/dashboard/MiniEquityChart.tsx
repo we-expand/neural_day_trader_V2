@@ -5,6 +5,14 @@ interface MiniEquityChartProps {
   // Sem histórico ainda (ex: sessão recém-iniciada), cai num fallback
   // honesto: linha reta no valor atual — nunca inventa movimento.
   data: number[];
+  // 🐛 FIX 2026-09-03: equity de referência do início do DIA/sessão (mesma
+  // base usada pelo card "Lucro AI Trader" ao lado). Sem isso, a cor
+  // verde/vermelho comparava só o primeiro x o último ponto da janela
+  // amostrada (~30min antes deste fix) — um recuo recente dentro dessa
+  // janela pintava a curva de vermelho mesmo com o dia inteiro no lucro,
+  // dando a sensação errada de perda ao usuário. Opcional: sem valor, cai
+  // de volta pro comportamento antigo (primeiro ponto da série).
+  referenceEquity?: number;
 }
 
 // Catmull-Rom -> Bezier, com reflexão nas pontas (em vez de duplicar o
@@ -26,29 +34,52 @@ function smoothPath(pts: { x: number; y: number }[]): string {
     const p2 = pts[i + 1];
     const p3 = pts[i + 2] || reflect(pts[i + 1], pts[i]);
 
+    const segMin = Math.min(p1.y, p2.y);
+    const segMax = Math.max(p1.y, p2.y);
+    const clampY = (y: number) => Math.min(segMax, Math.max(segMin, y));
+
     const c1x = p1.x + (p2.x - p0.x) / 6;
-    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c1y = clampY(p1.y + (p2.y - p0.y) / 6);
     const c2x = p2.x - (p3.x - p1.x) / 6;
-    const c2y = p2.y - (p3.y - p1.y) / 6;
+    const c2y = clampY(p2.y - (p3.y - p1.y) / 6);
 
     d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`;
   }
   return d;
 }
 
-export function MiniEquityChart({ data }: MiniEquityChartProps) {
+// Média móvel centrada com janela adaptativa (maior janela em séries mais
+// longas) — só suaviza o traço visual, não altera o dado real: continua
+// passando pela variação real, apenas reduz o jitter amostra-a-amostra que
+// deixa a curva com aparência "serrilhada" quando há muitos pontos.
+function movingAverage(values: number[]): number[] {
+  const n = values.length;
+  if (n < 5) return values;
+  const window = Math.min(9, Math.max(3, Math.round(n / 24)) | 1);
+  const half = Math.floor(window / 2);
+  return values.map((_, i) => {
+    const lo = Math.max(0, i - half);
+    const hi = Math.min(n - 1, i + half);
+    let sum = 0;
+    for (let j = lo; j <= hi; j++) sum += values[j];
+    return sum / (hi - lo + 1);
+  });
+}
+
+export function MiniEquityChart({ data, referenceEquity }: MiniEquityChartProps) {
   const uid = useId().replace(/:/g, '');
   const equityData = data.length >= 2 ? data : data.length === 1 ? [data[0], data[0]] : [0, 0];
+  const smoothedData = movingAverage(equityData);
 
   const width = 100;
   const height = 40;
   const padding = 5;
 
-  const min = Math.min(...equityData);
-  const max = Math.max(...equityData);
+  const min = Math.min(...smoothedData);
+  const max = Math.max(...smoothedData);
   const range = max - min || 1;
 
-  const pts = equityData.map((value, index) => ({
+  const pts = smoothedData.map((value, index) => ({
     x: (index / (equityData.length - 1)) * width,
     y: height - ((value - min) / range) * (height - padding * 2) - padding,
   }));
@@ -59,7 +90,8 @@ export function MiniEquityChart({ data }: MiniEquityChartProps) {
   const areaPath = `${linePath} L ${width},${height} L 0,${height} Z`;
 
   const isFlat = data.length < 2;
-  const isUp = !isFlat && equityData[equityData.length - 1] >= equityData[0];
+  const trendBase = referenceEquity ?? equityData[0];
+  const isUp = !isFlat && equityData[equityData.length - 1] >= trendBase;
   const strokeColor = isFlat ? '#64748b' : isUp ? '#2dd4bf' : '#fb7185';
 
   return (
@@ -80,7 +112,7 @@ export function MiniEquityChart({ data }: MiniEquityChartProps) {
             <stop offset="100%" stopColor={strokeColor} stopOpacity="1" />
           </linearGradient>
           <filter id={`equityGlow-${uid}`} x="-30%" y="-80%" width="160%" height="260%">
-            <feGaussianBlur stdDeviation="0.9" result="blur" />
+            <feGaussianBlur stdDeviation="0.6" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
@@ -122,7 +154,7 @@ export function MiniEquityChart({ data }: MiniEquityChartProps) {
           d={linePath}
           fill="none"
           stroke={`url(#equityStroke-${uid})`}
-          strokeWidth="1.1"
+          strokeWidth="0.85"
           strokeLinecap="round"
           strokeLinejoin="round"
           filter={`url(#equityGlow-${uid})`}

@@ -1,0 +1,19 @@
+{
+  "total_trades_exaustao": 33,
+  "pares_validos_com_candle": 33,
+  "original_direcao": {
+    "netSum": 0.6981,
+    "wins": 10,
+    "winRate": 30.3
+  },
+  "direcao_invertida": {
+    "netSum": -0.2903,
+    "wins": 6,
+    "winRate": 18.2
+  },
+  "delta_flip_menos_original": -0.9884,
+  "trades_em_que_flip_seria_melhor": 22,
+  "trades_em_que_flip_seria_pior": 11,
+  "trades_iguais": 0,
+  "se_sempre_operasse_invertido": -0.2903
+}

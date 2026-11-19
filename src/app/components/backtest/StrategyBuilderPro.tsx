@@ -732,7 +732,7 @@ export function StrategyBuilderPro({ isOpen, onClose, onSave, editingStrategy }:
                               : 'bg-zinc-800/50 border-zinc-700/50 text-slate-400 hover:text-white'
                           }`}
                         >
-                          Compra (Long)
+                          Compra
                         </button>
                         <button
                           onClick={() => setStrategy({ ...strategy, entrySignal: 'SELL' })}
@@ -742,7 +742,7 @@ export function StrategyBuilderPro({ isOpen, onClose, onSave, editingStrategy }:
                               : 'bg-zinc-800/50 border-zinc-700/50 text-slate-400 hover:text-white'
                           }`}
                         >
-                          Venda (Short)
+                          Venda
                         </button>
                       </div>
                       <p className="text-xs text-slate-600 mt-1.5">

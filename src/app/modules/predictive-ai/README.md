@@ -1,6 +1,28 @@
-# 🤖 IA PREDITIVA & ORDER FLOW MODULE
+# 🧠 INTELIGÊNCIA DE MERCADO (ex-"IA Preditiva")
 
-Módulo completo e isolado da IA Preditiva para a Neural Day Trader Platform.
+Módulo de análise de mercado em tempo real da Neural Day Trader Platform.
+
+> **Nota de disciplina do projeto (2026-09-09):** esta aba já se chamou "IA
+> Preditiva" e teve, no passado, um "Detector de Baleias e Liquidez
+> Institucional" que gerava alertas como `"VENDA BALEIA: 350 BTC
+> transferidos, pressão de baixa detectada"` usando `Math.random()` —
+> ou seja, dado 100% fabricado apresentado ao usuário como fato real. Isso
+> violava a regra fixa do projeto de nunca fabricar dado (ver
+> `CLAUDE.md`). Foi corrigido em 2026-07-28 (removidos os ~17 templates de
+> alerta sorteados — baleia, spoofing, iceberg, RSI fabricado, cluster de
+> stops fictício, e o teste sempre-verdadeiro disfarçado
+> `currentPrice >= whalePrice` onde `whalePrice = Math.floor(currentPrice)`).
+> Esta versão do README documenta o comportamento REAL atual do
+> componente — não repita a documentação antiga, que descrevia dado
+> fabricado como se fosse real.
+>
+> Decisão de produto vigente (ver `CLAUDE.md`, "Cérebro de decisão da
+> IA"): busca sistemática por edge de sinal técnico clássico NÃO encontrou
+> edge de DIREÇÃO comprovado (correção estatística DSR, meses de
+> investigação). Este módulo nunca prevê direção de preço. Ele mostra
+> contexto real (volatilidade, regime de mercado, zonas técnicas
+> históricas, horário de mercado) — decisão de entrar/sair continua sendo
+> do trader ou do LLM Brain (motor de execução separado).
 
 ## 📦 Estrutura do Módulo
 
@@ -12,367 +34,94 @@ Módulo completo e isolado da IA Preditiva para a Neural Day Trader Platform.
 └── README.md                          # Esta documentação
 ```
 
-## 🎯 O QUE É O LIQUIDITY PREDICTION?
-
-**Sistema avançado de detecção de liquidez institucional e análise de order flow em tempo real.**
-
-Este não é um simples indicador técnico. É um **detector de intenções de baleias e instituições**, rastreando:
-- 🐋 Movimentações de carteiras baleias
-- 📊 Ordens passivas ocultas (icebergs)
-- 🎯 Paredes de compra/venda (buy/sell walls)
-- ⚡ Spoofing e manipulação de mercado
-- 🌊 Fluxo líquido de capital institucional
+O componente real é `src/app/components/innovation/LiquidityPrediction.tsx`.
 
 ---
 
-## 🚀 Funcionalidades Principais
+## ✅ O que é real hoje (nada fabricado)
 
-### 🤖 **Sistema de Alertas em Tempo Real**
-- ✅ **Alertas de Baleias:** Detecta movimentações > $30M
-- ✅ **Virada de Candle:** Aviso 8min antes da virada (15min timeframe)
-- ✅ **Horários de Mercado:** NYSE, Ásia, Londres-NY
-- ✅ **Fim de Semana:** Desativa alertas de bolsa automaticamente
-- ✅ **Voz Preditiva:** Narração de eventos críticos
+### 1. Alertas de horário de mercado (relógio real)
+Abertura NYSE (11:30 BRT), fechamento NYSE (18:00 BRT), abertura mercado
+asiático (21:00 BRT), sobreposição Londres-NY (09:00-13:00 BRT) — todos
+calculados a partir do horário real do sistema (`Date`), não simulados.
+Fins de semana desativam alertas de bolsa automaticamente (crypto 24/7
+continua).
 
-### 📊 **Análise de Liquidez**
-- ✅ **Heatmap de Liquidez:** Visualização de paredes institucionais
-- ✅ **Order Book Depth:** Análise de profundidade de mercado
-- ✅ **Correlações:** Relação entre ativos
-- ✅ **300+ Ativos:** Forex, Crypto, Stocks, Indices, Commodities
+### 2. Contagem regressiva real de virada de candle
+Baseada no timeframe selecionado e no minuto/segundo real atual — sem
+nenhum sorteio, é aritmética de relógio.
 
-### 🎯 **Detector de Eventos**
-- ✅ **COMPRA:** Acumulação, Front-Running, Market Maker
-- ✅ **VENDA:** Distribuição, Smart Money, Stop Cascata
-- ✅ **NEUTRO:** Volume Anômalo, Zona Crítica, Heatmap
+### 3. Trade grande real (Binance aggTrades) — só cripto
+Reporta um trade agregado real já EXECUTADO na Binance acima de
+`BIG_TRADE_USD_THRESHOLD` (hoje US$ 250.000 — limiar arbitrário
+documentado, não calibrado estatisticamente, ajustável). É relato de
+evento passado, nunca previsão de movimento futuro.
 
-### 🔊 **Voice Assistant (Neural Voice AI)**
-- ✅ Narração de eventos críticos
-- ✅ Prioridade alta para vendas > $30M
-- ✅ Alertas de manipulação (spoofing)
-- ✅ Contagem regressiva de candles
+### 4. Pressão de book real (microestrutura) — só cripto
+Quando `scoreResult.microstructure` está disponível, descreve pressão de
+compra/venda real via `describeMicrostructure`. Não existe pra
+forex/índices/commodities via MetaAPI (a corretora CFD não expõe book
+L2/L3 real — nunca inventar isso).
 
-### 📈 **Gráficos Interativos**
-- ✅ Chart de Liquidez com Recharts
-- ✅ Visualização de paredes (walls)
-- ✅ Predições da IA
-- ✅ Múltiplos timeframes (1m, 5m, 15m, 1h, 4h, 1d, 1w)
+### 5. Correlações
+Removida a geração de correlação via `Math.random()`. Não há substituto
+com dado real implementado ainda — card de correlação fica vazio/oculto
+até existir fonte real.
 
 ---
 
-## 🎨 Interface Visual
+## ❌ O que NÃO existe mais (removido em 2026-07-28)
 
-### Layout Principal
-```
-┌─────────────────────────────────────────────────────────┐
-│ 🧠 IA PREDITIVA & ORDER FLOW                            │
-│ Detector de Liquidez Institucional em Tempo Real       │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│ [🪙 BTCUSD ▼]  [1h ▼]  [ℹ️]                            │
-│                                                         │
-│ ┌──────────────────────┐  ┌────────────────────────┐  │
-│ │ 📊 HEATMAP LIQUIDEZ  │  │ 🔊 ALERTAS IA         │  │
-│ │                      │  │                        │  │
-│ │    🌊 Buy Walls      │  │ 10:42:15              │  │
-│ │    ━━━━━━━━━━━━     │  │ 🔴 VENDA BALEIA       │  │
-│ │                      │  │ 350 BTC (~$16M)       │  │
-│ │    Current Price     │  │ Binance. Pressão de   │  │
-│ │    ────────────      │  │ baixa detectada.      │  │
-│ │                      │  │                        │  │
-│ │    🔥 Sell Walls     │  │ 10:41:48              │  │
-│ │    ━━━━━━━━━━━━     │  │ 🟢 COMPRA BALEIA      │  │
-│ │                      │  │ 200 BTC (~$9M)        │  │
-│ └──────────────────────┘  │ Carteira fria.        │  │
-│                           │                        │  │
-│ ┌──────────────────────┐  │ 10:41:20              │  │
-│ │ 🔗 CORRELAÇÕES       │  │ ⏰ VIRADA CANDLE      │  │
-│ │                      │  │ em 7min 32s! Candle:  │  │
-│ │ ETH:  0.92 🟢       │  │ 🟢 COMPRA confirmada  │  │
-│ │ SOL:  0.75 🟢       │  │                        │  │
-│ │ SPX:  0.45 ⚪       │  │ 10:40:55              │  │
-│ │ DXY: -0.65 🔴       │  │ ⏰ ABERTURA NYSE      │  │
-│ │                      │  │ em 25min! ALTA        │  │
-│ └──────────────────────┘  │ VOLATILIDADE em USD   │  │
-│                           └────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
-```
+- Detector de "baleias" fabricado (`Math.random()` decidindo se é
+  compra/venda e o volume "transferido").
+- Templates de alerta sorteados: spoofing, iceberg, acumulação/distribuição
+  fabricadas, RSI/divergência inventados, cluster de stop loss fictício,
+  front-running fabricado.
+- O teste sempre-verdadeiro disfarçado de "baleia cruzando o preço"
+  (comparava o preço com ele mesmo arredondado).
 
-### Alerta de Baleia (Crítico)
-```
-🔴 VENDA BALEIA: 350 BTC (~$16M) transferidos para 
-Binance (0x7a...9f). MOVIMENTO: VENDA MASSIVA. 
-
-SUGESTÃO: RISCO EXTREMO! Reduza exposição ou ative 
-stops apertados AGORA.
-```
-
-### Alerta de Virada de Candle
-```
-⏰ VIRADA DE CANDLE BTCUSD em 7min 32s! 
-Candle atual: 🟢 COMPRA. 
-
-SUGESTÃO: Se romper resistência = COMPRA confirmada. 
-Se rejeitar = AGUARDE correção.
-```
-
-### Alerta de Horário de Mercado
-```
-⏰ ABERTURA NYSE em 25 minutos! 
-ALTA VOLATILIDADE em pares USD. 
-
-SUGESTÃO: Aguarde os primeiros 15 minutos para 
-definir direção clara antes de entrar.
-```
+Se você (humano ou IA) for mexer neste arquivo de novo: **não reintroduza
+nenhum desses padrões**, mesmo que pareça "só uma variação de UX". Qualquer
+alerta novo tem que ter fonte de dado real e rastreável até uma API/feed
+concreto — sem exceção.
 
 ---
 
-## 🔧 Como Usar
+## 🔮 Roadmap de evolução (veredito do llm-council, 2026-09-09)
 
-### Importação Limpa
+O conselho recomendou renomear a aba pra reduzir o risco de o nome
+prometer "prever o futuro" — exatamente a pressão que gerou o Detector de
+Baleias fabricado no passado. **Decisão do Cleber (2026-09-09): renomear
+pra "Inteligência de Mercado"** (menu lateral, título da página e texto do
+tutorial de onboarding atualizados). Nada aqui prevê direção de preço;
+tudo é contexto real ou volatilidade.
 
-```typescript
-import { LiquidityPredictionView } from '@/app/modules/predictive-ai';
+| # | Função | Status |
+|---|---|---|
+| 1 | Previsão de Volatilidade (EWMA/GARCH) | ✅ Implementado |
+| 2 | Classificador de Regime de Mercado | 🔜 Reaproveita `atr.ts` |
+| 3 | Zonas Técnicas de Interesse (ex-"liquidez") | 🔜 Reaproveita S/R do `ChartView.tsx` |
+| 4 | Meta-Confiança do LLM Brain | ⏸ Pausado — precedente Jarvis (n=278 insuficiente), reconsiderar com 450-500+ trades |
+| 5 | Alerta de Janela de Risco Elevado | 🔜 Composição de vol + regime + notícia real |
+| 6 | "Rompimento Falso" / "Exaustão de Tendência" | ❌ Não é feature — é linha de pesquisa formal (walk-forward/holdout), mesmo padrão exigido pra qualquer alegação de edge no projeto |
 
-// Uso básico
-<LiquidityPredictionView />
-```
-
-### Exemplo Completo
-
-```tsx
-import React from 'react';
-import { LiquidityPredictionView } from '@/app/modules/predictive-ai';
-
-export function TradingDashboard() {
-  return (
-    <div>
-      <h1>IA Preditiva</h1>
-      
-      {/* IA Preditiva Full */}
-      <LiquidityPredictionView />
-    </div>
-  );
-}
-```
-
----
-
-## 📊 Tipos de Alertas
-
-### 🟢 COMPRA (Bullish)
-1. **Baleia Comprando:** Grandes volumes para carteiras frias
-2. **Acumulação:** Compra passiva detectada
-3. **Institucional:** Market Makers posicionados
-4. **Front-Running:** Ordem iceberg detectada
-5. **Fluxo Líquido Positivo:** Capital entrando
-6. **On-Chain:** Stakeholders aumentando posições
-7. **Proteção Suporte:** Grandes blocos de compra
-
-### 🔴 VENDA (Bearish)
-1. **Baleia Vendendo:** Transferências para exchanges
-2. **Distribuição:** Venda massiva iminente
-3. **Smart Money:** Instituições saindo
-4. **RSI Divergência:** Sobrecompra + reversão
-5. **Stop Loss Cascata:** Cluster de stops abaixo
-6. **Spoofing:** Ordem fantasma (armadilha)
-
-### ⚪ NEUTRO (Informativo)
-1. **Volume Anômalo:** Aumento sem direção clara
-2. **Zona Crítica:** Testando resistência/suporte
-3. **Heatmap Liquidez:** Concentração de ordens
-4. **Virada de Candle:** Contagem regressiva
-5. **Horários de Mercado:** Abertura/Fechamento
-
----
-
-## 🕐 Sistema de Horários
-
-### Mercados Monitorados
-
-| Mercado | Horário (BRT) | Evento | Alerta |
-|---------|---------------|--------|--------|
-| **NYSE** | 11:30 | Abertura | 25 min antes |
-| **NYSE** | 18:00 | Fechamento | 10 min antes |
-| **Ásia** | 21:00 | Abertura | 10 min antes |
-| **Londres-NY** | 09:00-13:00 | Sobreposição | Durante período |
-| **Crypto** | 00:00 UTC | Fechamento Diário | 10 min antes |
-
-### Detecção de Fim de Semana
-- ✅ Desativa alertas de bolsa automaticamente
-- ✅ Continua alertas de crypto (24/7)
-- ✅ Baseado em UTC Day (0=Domingo, 6=Sábado)
-
----
-
-## 🔊 Sistema de Voz (Neural Voice AI)
-
-### Eventos Narrados
-
-#### 1. Venda Baleia Crítica (> $30M)
-```
-"Alerta crítico! Baleia vendendo 350 Bitcoin, 
-aproximadamente 16 milhões de dólares. 
-Pressão de baixa detectada."
-```
-
-#### 2. Distribuição Massiva
-```
-"Atenção! Distribuição massiva detectada. 
-Possível venda iminente nas próximas 2 a 6 horas."
-```
-
-#### 3. Spoofing (Manipulação)
-```
-"Alerta! Ordem fantasma detectada. 
-Não entre em short agora, é armadilha de manipulação."
-```
-
-#### 4. Virada de Candle (< 2 minutos)
-```
-"Atenção! Candle Bitcoin vira em 1 minuto."
-```
-
-#### 5. Abertura NYSE
-```
-"Abertura da bolsa de Nova York em 10 minutos. 
-Prepare-se para alta volatilidade."
-```
-
----
-
-## 🐛 Debug e Logs
-
-Todos os logs são prefixados para fácil identificação:
-
-```javascript
-[LIQUIDITY_PREDICTION] 🤖 IA Preditiva & Order Flow carregada
-[LIQUIDITY_PREDICTION] 🔍 Detector de Liquidez Institucional ativo
-[LIQUIDITY_PREDICTION] 🔍 300+ ativos disponíveis para análise
-[LIQUIDITY_PREDICTION] 🔴 FIM DE SEMANA detectado. Alertas de bolsa desativados.
-```
-
-### Filtrar Logs no Console
-
-```javascript
-// No DevTools Console, digite:
-[LIQUIDITY_PREDICTION
-```
-
----
-
-## 🔮 Como Funciona a IA
-
-### 1. Detecção de Baleias
-```typescript
-// Monitora transferências on-chain
-const whaleAmount = Math.floor(Math.random() * 500) + 100;
-const whaleValueUSD = whaleAmount * currentPrice / divider;
-
-// Se > $30M = Crítico (voz + alerta vermelho)
-if (whaleValueUSD > 30) {
-  speak(`Alerta crítico! Baleia vendendo...`);
-}
-```
-
-### 2. Cálculo de Virada de Candle
-```typescript
-// Timeframe de 15 minutos
-const currentMinute = new Date().getMinutes();
-const minutesUntilCandle = 15 - (currentMinute % 15);
-
-// Alerta apenas se < 8 minutos
-if (totalSecondsUntilCandle <= 480) {
-  addAlert(`⏰ VIRADA DE CANDLE em ${min}min ${sec}s!`);
-}
-```
-
-### 3. Horários de Mercado
-```typescript
-// Verificar dia útil (seg-sex)
-const utcDay = new Date().getUTCDay();
-const isWeekday = utcDay >= 1 && utcDay <= 5;
-
-// Abertura NYSE (9:30 AM ET = 11:30 BRT)
-if (isWeekday && currentHour === 11 && currentMinute >= 25) {
-  addAlert(`⏰ ABERTURA NYSE em ${30 - currentMinute} minutos!`);
-}
-```
-
-### 4. Heatmap de Liquidez
-```typescript
-// Simular paredes de liquidez
-let liquidity = Math.abs(Math.sin(index * 0.1) * 500);
-
-// Paredes grandes em índices específicos
-if (index === 10 || index === 40) liquidity += 2500;
-
-// Detectar paredes (> 2000)
-const isWall = liquidity > 2000;
-```
-
----
-
-## 📚 Estratégias Sugeridas
-
-### 1. Front-Running (Baleia como Suporte)
-```
-🟢 COMPRA BALEIA detectada em $48,000
-
-ESTRATÉGIA:
-- Entrar logo ACIMA da ordem ($48,050)
-- Usar a baleia como "suporte impenetrável"
-- Stop loss: Logo abaixo da baleia ($47,900)
-- Target: +2-3% ($48,960-$49,440)
-```
-
-### 2. Proteção de Stops (Anti-Violino)
-```
-🔴 STOP LOSS CASCATA detectado abaixo de $47,500
-
-ESTRATÉGIA:
-- EVITE colocar stop em $47,500 (óbvio)
-- Posicione stop logo ABAIXO do cluster ($47,400)
-- Ou logo ACIMA da parede de compra ($48,000)
-- Evite ser "violinado" por manipuladores
-```
-
-### 3. Spoofing (Armadilha)
-```
-🔴 SPOOFING detectado - Ordem fantasma de VENDA
-
-ESTRATÉGIA:
-- NÃO entre em SHORT! É armadilha
-- Aguarde 15-30 min (ordem será cancelada)
-- Possível PUMP após cancelamento
-- Entre LONG após confirmação
-```
-
----
-
-## ⚠️ Observações Importantes
-
-1. **Dados Simulados:** Sistema usa dados simulados para demonstração
-2. **Preços Reais:** Integração com Binance API para preços reais
-3. **Voz:** Sistema de voz pode ser desativado no navegador
-4. **Fim de Semana:** Alertas de bolsa desativados automaticamente
-5. **300+ Ativos:** Suporte completo ao assetDatabase
+Toda funcionalidade nova com threshold configurável pelo usuário segue 3
+regras (achado do conselho, risco de "p-hacking pelo front-end"):
+1. Range do threshold travado dentro de uma faixa validada estatisticamente, nunca livre.
+2. Toda mudança de configuração gera log auditável (mesmo padrão do `ai_trades_audit_log`).
+3. Liga/desliga por ativo só é permitido para ativos individualmente validados — nunca herdado do ativo-piloto.
 
 ---
 
 ## 🎯 Glossário
 
-- **Baleia:** Carteira com grande volume de ativos (> $10M)
-- **Liquidez:** Ordens passivas aguardando execução
-- **Order Flow:** Fluxo de ordens de compra/venda
-- **Parede (Wall):** Concentração de ordens em um preço
-- **Iceberg:** Ordem grande dividida em partes menores
-- **Spoofing:** Ordem falsa para manipular mercado
-- **Front-Running:** Entrar antes de grande ordem
-- **Smart Money:** Capital institucional/profissional
-- **Cascata:** Efeito dominó de stop losses
+- **EWMA**: Exponentially Weighted Moving Average — média móvel exponencial usada pra estimar variância recente.
+- **GARCH**: modelo estatístico de volatilidade condicional (heterocedasticidade condicional autorregressiva generalizada).
+- **DSR**: Deflated Sharpe Ratio — correção estatística pra múltiplos testes, usada neste projeto pra evitar falso positivo de "edge".
+- **Walk-forward**: validação sem look-ahead, treina num período e testa no período seguinte, nunca no mesmo.
 
 ---
 
-**Status:** ✅ Completo e Funcional  
-**Última Atualização:** Fevereiro 2026  
+**Status:** ✅ Em evolução, disciplina de dado real ativa
+**Última Atualização:** 2026-09-09
 **Neural Day Trader Platform**

@@ -8,6 +8,8 @@
  * Retorna null silenciosamente se todas falharem — sem erros críticos.
  */
 
+import { projectId, publicAnonKey } from '../../../utils/supabase/info.tsx';
+
 export interface BinanceTickerData {
   symbol: string;
   price: number;
@@ -76,6 +78,39 @@ async function fetchOne(url: string): Promise<any> {
 const FAILURE_COOLDOWN_MS = 60_000;
 const recentFailures = new Map<string, number>();
 
+// ✅ 2026-08-20: as 3 tentativas client-side abaixo (direto + 2 proxies CORS)
+// estão confirmadas mortas em produção desde 2026-07-10 (CORS/403 bloqueado
+// no domínio do navegador — bloqueio é do NAVEGADOR, não existe pro
+// servidor). Rota nova `/binance-ticker/:symbol` (supabase/functions/server/
+// index.ts) faz a mesma chamada server-side, sem CORS, sem fabricar dado em
+// falha (erro explícito). Tentada primeiro; as tentativas antigas continuam
+// como fallback adicional (ex: se o backend estiver fora do ar), sem custo
+// real já que rodam em paralelo via Promise.any de qualquer forma.
+async function fetchViaServerProxy(symbol: string): Promise<any | null> {
+  try {
+    const url = `https://${projectId}.supabase.co/functions/v1/server/binance-ticker/${symbol}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${publicAnonKey}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.error || typeof data?.price !== 'number') return null;
+    // Normaliza pro formato que fetchOne/parse abaixo espera (campos crus da Binance)
+    return {
+      lastPrice: String(data.price),
+      priceChange: String(data.change),
+      priceChangePercent: String(data.changePercent),
+      volume: String(data.volume),
+      highPrice: String(data.high),
+      lowPrice: String(data.low),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchWithFallback(path: string): Promise<any | null> {
   const lastFailureAt = recentFailures.get(path);
   if (lastFailureAt && Date.now() - lastFailureAt < FAILURE_COOLDOWN_MS) {
@@ -84,14 +119,22 @@ async function fetchWithFallback(path: string): Promise<any | null> {
 
   const directUrl = `${BINANCE_BASE}${path}`;
 
-  // 🚀 PERF: direto + proxies CORS disparados EM PARALELO (Promise.any) em vez de
-  // sequencial — antes, se a chamada direta falhasse (comum: bloqueio de rede/CORS),
-  // esperava o timeout de 5s dela e só então tentava o próximo, podendo somar até
-  // ~15s por símbolo. Agora usa a primeira resposta que chegar.
-  const urls = [directUrl, ...CORS_PROXIES.map(build => build(directUrl))];
+  // 🚀 PERF: proxy do servidor + direto + proxies CORS disparados EM PARALELO
+  // (Promise.any) — o proxy do servidor deveria vencer sempre (sem CORS), os
+  // outros são só rede de segurança caso o backend caia.
+  const symbolMatch = path.match(/symbol=([A-Z]+)/);
+  const attempts: Promise<any>[] = [directUrl, ...CORS_PROXIES.map(build => build(directUrl))].map(fetchOne);
+  if (symbolMatch) {
+    attempts.push(
+      fetchViaServerProxy(symbolMatch[1]).then((r) => {
+        if (!r) throw new Error('server proxy sem dado');
+        return r;
+      })
+    );
+  }
 
   try {
-    const result = await Promise.any(urls.map(fetchOne));
+    const result = await Promise.any(attempts);
     recentFailures.delete(path); // sucesso — reseta o cooldown se tinha algum
     return result;
   } catch {

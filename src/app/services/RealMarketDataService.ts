@@ -50,6 +50,11 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 const priceCache = new Map<string, { data: RealMarketData; timestamp: number }>();
 const CACHE_TTL = 2000; // 2 segundos
 
+// 🔒 Mutex do lote de broker em `getBatchedMT5Data` — ver comentário 2026-08-25
+// no corpo da função. Serializa chamadas concorrentes de múltiplos
+// componentes contra a mesma conta MetaAPI compartilhada.
+let pendingBrokerBatchFetch: Promise<void> | null = null;
+
 /**
  * 🕐 ÚLTIMO PREÇO REAL CONHECIDO — não expira (dura a sessão do navegador).
  *
@@ -67,6 +72,87 @@ const CACHE_TTL = 2000; // 2 segundos
  * zerar e esperar o round-trip da rede.
  */
 const lastRealPriceCache = new Map<string, RealMarketData>();
+
+/**
+ * 🛡️ GUARDA DE DESVIO MÁXIMO — 2026-08-21.
+ *
+ * Achado em auditoria de dado histórico: um trade fechado de SPX500 teve
+ * entry_price=6010,13 / exit_price=7536,86 (+25,4%, PnL -$3.810) sem
+ * nenhuma rejeição em nenhum ponto do pipeline. Investigação confirmou:
+ * nem client nem servidor (`ai-runner/positionManager.ts`, que importa
+ * este mesmo módulo) tinham qualquer checagem de variação percentual antes
+ * de aceitar um preço como "real" e fechar posição em cima dele — só
+ * preço `<= 0`/`NaN` era rejeitado. O clamp "±50%" documentado no CLAUDE.md
+ * pra cripto nunca protegeu este caminho (vivia só em `DataQualityMonitor.ts`,
+ * código morto usado só por um badge de UI). Prática padrão do setor
+ * (requote, "maximum deviation" nativo do MT4/MT5, rejeição de stale price)
+ * existe exatamente pra este risco — implementado aqui de forma central,
+ * protegendo qualquer chamador (client E servidor, mesmo import).
+ *
+ * Limiar por classe: cripto genuinamente move mais que forex/índice/
+ * commodity/ação num intervalo de poucos segundos a minutos entre polls —
+ * limiar mais folgado pra não gerar falso-positivo em dia de notícia real.
+ */
+const MAX_DEVIATION_BY_CATEGORY: Record<string, number> = {
+  CRYPTO: 0.20,
+};
+const DEFAULT_MAX_DEVIATION = 0.08; // forex/índice/commodity/ação/bond
+
+function maxDeviationFor(symbol: string): number {
+  const asset = getAssetBySymbol(symbol.toUpperCase());
+  if (asset) return MAX_DEVIATION_BY_CATEGORY[asset.category] ?? DEFAULT_MAX_DEVIATION;
+  return DEFAULT_MAX_DEVIATION;
+}
+
+/**
+ * Só compara contra a referência anterior se ela ainda for "fresca" — um
+ * preço parado há horas (feed travado) não é uma referência válida pra
+ * detectar salto suspeito: o mercado pode legitimamente ter se movido muito
+ * nesse intervalo (retomada depois de gap real). O caso que motivou este
+ * guard tinha a referência anterior da MESMA sessão de poll contínuo, não
+ * um preço velho de dias.
+ */
+const RECENT_REFERENCE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutos
+
+/**
+ * Detecta um preço que desviou demais da última referência real e recente
+ * pro mesmo símbolo — sinal de tick de má qualidade (feed engasgado,
+ * corretora saturada sob rate-limit) mais do que movimento real de mercado.
+ * Não decide sozinho o que fazer com o resultado — quem chama decide se
+ * rejeita ou aceita mesmo assim.
+ */
+/**
+ * 🛡️ 2026-08-21: os limiares acima (8%/20% de desvio, 10min de referência,
+ * 5min de TTL) são estimativa informada pela prática de mercado pesquisada,
+ * não calibração contra dado histórico do produto — só havia 1 caso no
+ * histórico pra calibrar (ver SESSAO_2026-08-21_GUARDA_DESVIO_PRECO.md,
+ * seção "Pendências"). Grava cada rejeição/degradação em
+ * `price_guard_events` pra acumular amostra real de produção e permitir essa
+ * calibração mais tarde. Fire-and-forget de propósito: telemetria nunca pode
+ * atrasar ou quebrar o caminho de preço real.
+ */
+function logPriceGuardEvent(row: Record<string, unknown>): void {
+  try {
+    supabase
+      .from('price_guard_events')
+      .insert(row)
+      .then(({ error }: { error: unknown }) => {
+        if (error) console.warn('[RealMarketData] Falha ao gravar price_guard_events:', error);
+      });
+  } catch (err) {
+    console.warn('[RealMarketData] Falha ao gravar price_guard_events:', err);
+  }
+}
+
+function isSuspiciousDeviation(symbol: string, candidatePrice: number): { suspicious: boolean; reference?: RealMarketData; deviation?: number } {
+  const reference = lastRealPriceCache.get(symbol);
+  if (!reference || !reference.isRealData || !(reference.price > 0)) return { suspicious: false };
+  if (Date.now() - reference.timestamp > RECENT_REFERENCE_MAX_AGE_MS) return { suspicious: false };
+
+  const deviation = Math.abs(candidatePrice - reference.price) / reference.price;
+  const threshold = maxDeviationFor(symbol);
+  return { suspicious: deviation > threshold, reference, deviation };
+}
 
 /**
  * ✅ 2026-07-11 (2ª parte): Cleber reportou NZDUSD/GBPNZD (e confirmou que
@@ -88,6 +174,33 @@ const lastRealPriceCache = new Map<string, RealMarketData>();
  */
 function rememberIfReal(data: RealMarketData): RealMarketData {
   if (!data.isRealData) return data;
+
+  // 🛡️ Guarda de desvio máximo (ver comentário acima de MAX_DEVIATION_BY_CATEGORY):
+  // preço que salta demais em relação à última referência real e recente é
+  // tratado como tick suspeito, não como movimento real — descarta o tick
+  // (mantém o último preço real bom, nunca fecha/exibe posição em cima do
+  // valor suspeito) em vez de aceitar com a mesma confiança de um preço
+  // validado. Isolado por símbolo: não pode contaminar `lastRealPriceCache`
+  // com o valor suspeito, senão o PRÓXIMO tick bom (voltando ao normal)
+  // dispararia o guard de novo, ao contrário.
+  const { suspicious, reference, deviation } = isSuspiciousDeviation(data.symbol, data.price);
+  if (suspicious && reference) {
+    console.warn(
+      `[RealMarketData] 🚨 Preço suspeito descartado para ${data.symbol}: desviou ${((deviation ?? 0) * 100).toFixed(1)}% da última referência real (${reference.price}) em menos de ${RECENT_REFERENCE_MAX_AGE_MS / 60000}min — mantendo última referência.`,
+      { recebido: data.price, referencia: reference.price, fonte: data.source },
+    );
+    logPriceGuardEvent({
+      event_type: 'suspicious_deviation',
+      symbol: data.symbol,
+      category: getAssetBySymbol(data.symbol.toUpperCase())?.category ?? null,
+      candidate_price: data.price,
+      reference_price: reference.price,
+      deviation_pct: deviation != null ? deviation * 100 : null,
+      threshold_pct: maxDeviationFor(data.symbol) * 100,
+      source: data.source,
+    });
+    return reference;
+  }
 
   const suspiciousZeroChange = data.change === 0 && data.changePercent === 0;
   if (suspiciousZeroChange) {
@@ -121,9 +234,51 @@ function rememberIfReal(data: RealMarketData): RealMarketData {
  * (price: 0, isRealData: false) — a tela deve tratar isso como "carregando",
  * nunca como um preço válido.
  */
+/**
+ * 🛡️ 2026-08-21: `lastRealPriceCache` não expira por design (comentário
+ * acima) — correto pra manter "parado no último real conhecido" em vez de
+ * sintético em falhas curtas, mas sem TTL nenhum um feed travado por HORAS
+ * (rate-limit 429/504 prolongado da conta MetaAPI compartilhada, risco
+ * crônico já documentado no CLAUDE.md) faz esse preço velho continuar
+ * sendo servido como `isRealData: true` indefinidamente — incluindo pro
+ * `positionManager.ts` do servidor, que fecha posição (TP/SL) direto em
+ * cima de `tick.isRealData`. Acima deste limite, o fallback ainda é
+ * retornado (pra UI continuar mostrando algo em vez de zerar), mas marcado
+ * `isRealData: false` — position manager já trata isso como "sem preço
+ * válido, tenta de novo no próximo tick" (nunca fecha posição em cima de
+ * preço não confiável).
+ */
+const LAST_KNOWN_STALE_AFTER_MS = 5 * 60 * 1000; // 5 minutos
+
+// Throttle do log de `stale_fallback`: sem isso, um feed travado por horas
+// geraria uma linha por símbolo a CADA poll (1/min × N símbolos), inundando
+// a tabela sem agregar amostra nova. Uma linha a cada 5min por símbolo já
+// basta pra medir duração/frequência do problema em produção.
+const lastStaleLogAt = new Map<string, number>();
+const STALE_LOG_THROTTLE_MS = 5 * 60 * 1000;
+
 function getFallbackOrLastKnown(symbol: string): RealMarketData {
   const lastKnown = lastRealPriceCache.get(symbol);
-  if (lastKnown) return lastKnown;
+  if (lastKnown) {
+    const staleMs = Date.now() - lastKnown.timestamp;
+    const isStale = staleMs > LAST_KNOWN_STALE_AFTER_MS;
+    if (isStale) {
+      const lastLogged = lastStaleLogAt.get(symbol) ?? 0;
+      if (Date.now() - lastLogged > STALE_LOG_THROTTLE_MS) {
+        lastStaleLogAt.set(symbol, Date.now());
+        logPriceGuardEvent({
+          event_type: 'stale_fallback',
+          symbol,
+          category: getAssetBySymbol(symbol.toUpperCase())?.category ?? null,
+          reference_price: lastKnown.price,
+          source: lastKnown.source,
+          stale_ms: staleMs,
+        });
+      }
+      return { ...lastKnown, isRealData: false };
+    }
+    return lastKnown;
+  }
   return {
     symbol,
     price: 0,
@@ -372,6 +527,18 @@ async function fetchBinanceData(symbol: string): Promise<RealMarketData> {
     let binanceSymbol = symbol.toUpperCase().trim();
 
     // Casos especiais conhecidos
+    // 🔴 2026-09-06: mesmo achado catalogado em market-service.ts (candles) --
+    // vários símbolos reais da cesta do LLM Brain são o nome CURTO da
+    // corretora, sem relação de substring com o par real da Binance (DOGUSD
+    // não contém "DOGE", LNKUSD não contém "LINK", ATMUSD não contém "ATOM",
+    // AVAUSD não contém "AVAX"). Sem entrada aqui, o fallback abaixo
+    // (`USD`→`USDT`) gerava um símbolo que a Binance não reconhece (ex:
+    // "DOGUSDT", 404/erro), fazendo esta função devolver o último preço
+    // conhecido (ou o de entrada) pra sempre -- reproduzido ao vivo: card de
+    // posição do Dashboard mostrando "Atual" == "Entrada" indefinidamente
+    // pra DOGUSD, e um fechamento manual usando esse mesmo preço congelado
+    // como preço de saída (PnL fabricado ~$0 quando o preço real já tinha
+    // se movido).
     const manualMapping: Record<string, string> = {
       'BTCUSD': 'BTCUSDT',
       'ETHUSD': 'ETHUSDT',
@@ -380,6 +547,15 @@ async function fetchBinanceData(symbol: string): Promise<RealMarketData> {
       'XRPUSD': 'XRPUSDT',
       'ADAUSD': 'ADAUSDT',
       'DOTUSD': 'DOTUSDT',
+      'DOGUSD': 'DOGEUSDT',
+      'LNKUSD': 'LINKUSDT',
+      'UNIUSD': 'UNIUSDT',
+      'TRXUSD': 'TRXUSDT',
+      'ATMUSD': 'ATOMUSDT',
+      'XLMUSD': 'XLMUSDT',
+      'FILUSD': 'FILUSDT',
+      'AVAUSD': 'AVAXUSDT',
+      'XETUSD': 'ETHUSDT',
       'BTC': 'BTCUSDT',
       'ETH': 'ETHUSDT'
     };
@@ -510,7 +686,7 @@ async function fetchMT5Data(symbol: string): Promise<RealMarketData> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ symbols: [brokerSymbol] }),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(20000), // 2026-10-14: 8s -> 20s (MetaAPI levando 4-14s; estourar zerava preço/variação)
     });
 
     if (!res.ok) {
@@ -646,7 +822,16 @@ export function subscribeToMarketData(
   // Função para buscar dados de todos os símbolos
   const fetchAll = async () => {
     if (!isActive) return;
-    
+    // 🐛 FIX 2026-09-03: aba em background (usuário com várias abas do app
+    // abertas, ex: gráfico de NAS100 aberto em 2-3 abas ao mesmo tempo)
+    // continuava rodando este polling a todo vapor mesmo escondida —
+    // multiplicava as requisições no símbolo focado em cada aba contra a
+    // MESMA conta MetaAPI compartilhada, até estourar 429 (achado ao vivo:
+    // >30 chamadas avulsas de "NAS100" em 37s, rate-limitando só esse
+    // símbolo). Pular fetch com a aba oculta corta esse multiplicador sem
+    // remover o polling da aba realmente em uso.
+    if (typeof document !== 'undefined' && document.hidden) return;
+
     const promises = Array.from(activeSymbols).map(async (symbol) => {
       try {
         const data = await getRealMarketData(symbol);
@@ -740,7 +925,33 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
   const results: Record<string, RealMarketData> = {};
   if (symbols.length === 0) return results;
 
-  const normalizedSymbols = symbols.map(s => s.toUpperCase().replace('/', '').replace(' ', ''));
+  const allNormalizedSymbols = symbols.map(s => s.toUpperCase().replace('/', '').replace(' ', ''));
+
+  // 🔁 2026-08-25: leitura compartilhada do `priceCache` — antes, cada
+  // chamador (MarketTicker, MarketDataContext, MarketScoreBoard,
+  // useApexLogic, ChartView, VIXWidgetEnhanced) disparava sua PRÓPRIA
+  // requisição de lote pra mesma conta MetaAPI compartilhada, mesmo pedindo
+  // símbolos que acabaram de ser respondidos por outro chamador segundos
+  // antes. Achado ao investigar Dashboard zerado ("$---"/"0000.00" no
+  // footer inteiro): a soma de todos os pollers concorrentes (5+ componentes,
+  // cada um com seu próprio setInterval) estourava o rate-limit documentado
+  // no CLAUDE.md ("conta MetaAPI compartilhada... sujeita a rate-limit sob
+  // carga"), sobretudo no burst de montagem inicial da página. Reusa o
+  // `priceCache` já existente (TTL 2s, usado por getRealMarketData) como
+  // cache de leitura entre TODOS os chamadores de getBatchedMT5Data —
+  // símbolo já respondido por qualquer chamador nos últimos 2s não gera
+  // nova requisição de rede.
+  const normalizedSymbols: string[] = [];
+  for (const s of allNormalizedSymbols) {
+    const cached = priceCache.get(s);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      results[s] = cached.data;
+    } else {
+      normalizedSymbols.push(s);
+    }
+  }
+  if (normalizedSymbols.length === 0) return results;
+
   // Cripto com CFD confirmado na Infinox (BTC/SOL/BNB/XRP/ADA/DOT) entra no
   // lote da corretora, igual forex/índices — as 3 fontes de Binance direta
   // estão mortas em produção (ver brokerRegistry.ts). As demais cripto
@@ -757,6 +968,7 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
     } catch {
       results[symbol] = getFallbackOrLastKnown(symbol);
     }
+    priceCache.set(symbol, { data: results[symbol], timestamp: Date.now() });
   }));
 
   if (brokerSymbols.length === 0) return results;
@@ -764,12 +976,36 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
   // Forex/índices/commodities/ações/cripto-com-CFD: UMA chamada só, com todos
   // os símbolos disponíveis na corretora; os indisponíveis (confirmados via
   // brokerRegistry) vão direto pro Yahoo em paralelo, sem entrar no lote.
-  const availableSymbols = brokerSymbols.filter(s => isAvailableOnBroker(s, 'infinox'));
+  let availableSymbols = brokerSymbols.filter(s => isAvailableOnBroker(s, 'infinox'));
   const unavailableSymbols = brokerSymbols.filter(s => !isAvailableOnBroker(s, 'infinox'));
 
   await Promise.all(unavailableSymbols.map(async (symbol) => {
     results[symbol] = await fetchYahooData(symbol);
+    priceCache.set(symbol, { data: results[symbol], timestamp: Date.now() });
   }));
+
+  // 🔒 2026-08-25: mutex — se OUTRA chamada já está no meio do lote pro
+  // broker agora, espera ela terminar (em vez de disparar em paralelo) e
+  // então reaproveita o que ela já colocou no `priceCache` acima. Sem isso,
+  // o cache de leitura (fix anterior nesta mesma sessão) só evita requisição
+  // duplicada se a chamada anterior já tiver TERMINADO — um lote de 40
+  // símbolos pode levar vários segundos (latência normal documentada:
+  // 3-8s), então dois componentes montando quase ao mesmo tempo (burst de
+  // carregamento da página) ainda disparavam duas requisições concorrentes
+  // à mesma conta MetaAPI compartilhada antes que qualquer uma delas
+  // tivesse chance de popular o cache.
+  if (pendingBrokerBatchFetch) {
+    await pendingBrokerBatchFetch;
+    const stillMissing = availableSymbols.filter(s => {
+      const cached = priceCache.get(s);
+      if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        results[s] = cached.data;
+        return false;
+      }
+      return true;
+    });
+    availableSymbols = stillMissing;
+  }
 
   if (availableSymbols.length > 0) {
     // ✅ 2026-07-11: mandar TODOS os símbolos disponíveis (podem passar de 200,
@@ -790,35 +1026,101 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
     const priceByBrokerName = new Map<string, any>();
     let anyChunkSucceeded = false;
 
-    for (let i = 0; i < brokerNames.length; i += CHUNK_SIZE) {
-      const chunk = brokerNames.slice(i, i + CHUNK_SIZE);
+    const runChunks = async () => {
+      for (let i = 0; i < brokerNames.length; i += CHUNK_SIZE) {
+        const chunk = brokerNames.slice(i, i + CHUNK_SIZE);
 
-      try {
-        // ✅ 2026-07-23: mesmo timeout do fetchMT5Data single-symbol — sem
-        // isso, um chunk pendurado numa conta MetaAPI saturada bloqueava os
-        // chunks seguintes por minutos (chunks rodam em sequência, não em
-        // paralelo, ver o for acima).
-        const res = await fetch(MT5_PRICES_URL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ symbols: chunk }),
-          signal: AbortSignal.timeout(10000),
-        });
+        try {
+          // ✅ 2026-07-23: mesmo timeout do fetchMT5Data single-symbol — sem
+          // isso, um chunk pendurado numa conta MetaAPI saturada bloqueava os
+          // chunks seguintes por minutos (chunks rodam em sequência, não em
+          // paralelo, ver o for acima).
+          // ✅ 2026-09-04: 10s dava match quase exato com o pior caso real
+          // medido em produção pra um chunk de 40 símbolos (~10-10.3s, 5
+          // ondas de concorrência no backend) — o chunk abortava por uma
+          // margem mínima e todos os ~40 símbolos caíam no fallback Yahoo
+          // (sem cobertura do catálogo Infinox), aparecendo como "Sem dados"
+          // no Navegador de Ativos mesmo com o backend respondendo com dado
+          // real segundos depois. Subido pra 20s de folga (concorrência do
+          // backend também subiu no mesmo commit, então o caso comum deve
+          // ficar bem abaixo disso).
+          const res = await fetch(MT5_PRICES_URL, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ symbols: chunk }),
+            signal: AbortSignal.timeout(20000),
+          });
 
-        const body = res.ok ? await res.json() : null;
-        const prices = Array.isArray(body?.prices) ? body.prices : [];
-        prices.forEach((p: any) => priceByBrokerName.set(p.symbol, p));
-        if (prices.length > 0) anyChunkSucceeded = true;
-      } catch (error: any) {
-        console.warn('[RealMarketData] ⚠️ Falha num lote de /mt5-prices, símbolos desse lote vão pro Yahoo.', error?.message);
+          const body = res.ok ? await res.json() : null;
+          const prices = Array.isArray(body?.prices) ? body.prices : [];
+          prices.forEach((p: any) => priceByBrokerName.set(p.symbol, p));
+          // ✅ 2026-09-14 (achado real, pedido do Cleber -- Navegador de
+          // Ativos aparecia "Sem dados" pra TODO ativo, testado ao vivo: o
+          // endpoint /mt5-prices confirmadamente responde HTTP 429/504 em
+          // rajadas curtas quando a conta MetaAPI compartilhada satura (ex.
+          // motor LLM Brain rodando ciclo no mesmo momento), mas se recupera
+          // sozinha em segundos (confirmado retestando o mesmo lote 3x
+          // seguidas: falhou na 1a, 200/200/200 nas 3 seguintes). O bug real
+          // aqui era contar `prices.length > 0` como sucesso mesmo quando
+          // TODO item do lote vinha com `price: null` + campo `error` (HTTP
+          // 429/504 por símbolo) -- o array nunca vem vazio nesse caso, só
+          // com preço nulo, entao `anyChunkSucceeded` ficava true por engano
+          // e nenhuma tentativa nova acontecia; o modal ficava com "Sem
+          // dados" pro resto da sessao, sem nunca se recuperar sozinho ate
+          // fechar/reabrir. Corrigido pra só contar como sucesso quem de
+          // fato tem price valido.
+          if (prices.some((p: any) => isValidPrice(p?.price))) anyChunkSucceeded = true;
+        } catch (error: any) {
+          console.warn('[RealMarketData] ⚠️ Falha num lote de /mt5-prices.', error?.message);
+        }
+
+        if (i + CHUNK_SIZE < brokerNames.length) {
+          await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CHUNKS_MS));
+        }
       }
 
-      if (i + CHUNK_SIZE < brokerNames.length) {
-        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CHUNKS_MS));
+      // ✅ 2026-09-14: retry UNICO, so pros simbolos que ainda nao tem preco
+      // valido depois da 1a passada -- o teste ao vivo mostrou que o 429/504
+      // e transitorio (rajada curta de rate-limit), nao permanente. Espera
+      // 3s (tempo real observado pra conta MetaAPI compartilhada liberar de
+      // novo) e tenta so o que faltou, uma vez -- nao substitui o Yahoo pros
+      // simbolos indisponiveis no broker (isso ja acontece antes, linha
+      // ~982), so evita "Sem dados" permanente por uma rajada curta.
+      const stillMissing = brokerNames.filter((name) => !isValidPrice(priceByBrokerName.get(name)?.price));
+      if (stillMissing.length > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        try {
+          const retryRes = await fetch(MT5_PRICES_URL, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ symbols: stillMissing }),
+            signal: AbortSignal.timeout(20000),
+          });
+          const retryBody = retryRes.ok ? await retryRes.json() : null;
+          const retryPrices = Array.isArray(retryBody?.prices) ? retryBody.prices : [];
+          retryPrices.forEach((p: any) => priceByBrokerName.set(p.symbol, p));
+          if (retryPrices.some((p: any) => isValidPrice(p?.price))) anyChunkSucceeded = true;
+        } catch (error: any) {
+          console.warn('[RealMarketData] ⚠️ Retry de /mt5-prices tambem falhou.', error?.message);
+        }
       }
+    };
+
+    // 🔒 mutex: enquanto este lote roda, outra chamada concorrente de
+    // getBatchedMT5Data espera aqui em vez de disparar sua própria requisição
+    // em paralelo (ver comentário 2026-08-25 acima).
+    const chunksPromise = runChunks();
+    pendingBrokerBatchFetch = chunksPromise;
+    try {
+      await chunksPromise;
+    } finally {
+      if (pendingBrokerBatchFetch === chunksPromise) pendingBrokerBatchFetch = null;
     }
 
     if (!anyChunkSucceeded) {
@@ -842,6 +1144,7 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
         // corretora. Elimina de vez o padrão "corrige um ativo, quebra o
         // próximo" que se repetiu XPTUSD → VIX → cripto → NAS100 → XAUUSD.
         results[unified] = getFallbackOrLastKnown(unified);
+        priceCache.set(unified, { data: results[unified], timestamp: Date.now() });
         return;
       }
 
@@ -857,6 +1160,7 @@ export async function getBatchedMT5Data(symbols: string[]): Promise<Record<strin
         source: 'metaapi',
         isRealData: true,
       });
+      priceCache.set(unified, { data: results[unified], timestamp: Date.now() });
     }));
   }
 
